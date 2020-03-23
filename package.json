@@ -1,0 +1,24 @@
+{
+  "name": "parseur",
+  "version": "0.0.1",
+  "description": "A tiny parsing library",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ceymard/parseur.git"
+  },
+  "keywords": [
+    "parsing",
+    "peg",
+    "typescript"
+  ],
+  "author": "Christophe Eymard <christophe.eymard@gmail.com>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ceymard/parseur/issues"
+  },
+  "homepage": "https://github.com/ceymard/parseur#readme"
+}

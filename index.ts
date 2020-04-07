@@ -14,7 +14,7 @@ export type NoMatch = typeof NoMatch
 export class Token {
   public constructor(
     public def: TokenDef,
-    public match: RegExpMatchArray,
+    public match: RegExpExecArray,
     public is_skip: boolean,
     public line: number,
     public column: number,
@@ -25,6 +25,10 @@ export class Token {
 
 // A rule always execs on the first token to be checked
 
+export type TokenDefRet = {
+  def: TokenDef,
+  skip: boolean
+}
 
 // The tokenizer should be able to operate on a stream to create a token stream
 // Also, the rules should be able to use next() or anext() depending on whether they
@@ -32,10 +36,11 @@ export class Token {
 export class Tokenizer {
 
   defs = [] as TokenDef[]
+  deftable = [] as [number, TokenDef[]][]
 
-  token(def: RegExp, name = '') {
+  token(def: RegExp | string, name = '') {
     // All the regexp we handle are sticky ones.
-    var reg = new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
+    var reg = typeof def === 'string' ? def : new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
     var tdef = new TokenDef(name, reg, false)
     this.defs.push(tdef)
     return tdef
@@ -55,8 +60,21 @@ export class Tokenizer {
       for (var i = 0; i < l; i++) {
         var tkd = tokendefs[i]
         var reg = tkd._regex
-        reg.lastIndex = pos
-        var match = reg.exec(input)
+        var match: RegExpExecArray | null
+        if (typeof reg === 'string') {
+          var tomatch = input.slice(pos, pos + reg.length)
+          if (reg === tomatch) {
+            match = [reg] as RegExpExecArray
+            match!.input = input
+            match!.groups = {}
+            match!.index = pos
+          } else {
+            match = null
+          }
+        } else {
+          reg.lastIndex = pos
+          match = reg.exec(input)
+        }
         if (!match) continue
 
         if (enable_line_counts) {
@@ -177,7 +195,7 @@ export class MappedRule<T> extends Rule<T> {
 export class TokenDef extends Rule<Token> {
   constructor(
     public _name: string,
-    public _regex: RegExp,
+    public _regex: RegExp | string,
     public _skip: boolean,
   ) {
     super((input, pos) => {
@@ -206,7 +224,7 @@ export type RawRule<T> = Rule<T> | RegExp | string
 /**
  *
  */
-export type Result<T> = T extends Rule<infer U> ? U : T extends RegExp ? RegExpMatchArray : T extends string ? string : never
+export type Result<T> = T extends Rule<infer U> ? U : T extends RegExp ? RegExpExecArray : T extends string ? string : never
 
 
 
@@ -222,7 +240,7 @@ export function Str(str: string): Rule<string> {
 }
 
 
-export function Reg(reg: RegExp): Rule<RegExpMatchArray> {
+export function Reg(reg: RegExp): Rule<RegExpExecArray> {
   return new Rule(function RegexpRule(input, pos) {
     // start by skipping until we get a non-skip token.
     var tk: Token | undefined
@@ -239,10 +257,10 @@ export function Reg(reg: RegExp): Rule<RegExpMatchArray> {
 /**
  *
  */
-export function R(exp: RegExp): Rule<RegExpMatchArray>
+export function R(exp: RegExp): Rule<RegExpExecArray>
 export function R(exp: string): Rule<string>
 export function R<T>(exp: Rule<T>): Rule<T>
-export function R<T>(exp: string | RegExp | Rule<T>): Rule<string | RegExpMatchArray | T>
+export function R<T>(exp: string | RegExp | Rule<T>): Rule<string | RegExpExecArray | T>
 export function R(exp: any) {
   if (exp instanceof Rule) return exp
   if (typeof exp === 'string') return Str(exp)

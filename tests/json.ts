@@ -3,9 +3,23 @@ import { Tokenizer, Seq, Either, Rule, Forward } from '../index'
 var tk = new Tokenizer()
 
 const T = {
-  CTRL: tk.token(/\{|\}|:|\[|\]|,/),
-  STR: tk.token(/"(\\"|[^"])*"/).map(r => r.match[0].slice(1, -1)),
-  NUM: tk.token(/-?\d+(\.\d+)?([eE][+-]?)?/).map(r => parseFloat(r.match[0])),
+  // LBRACE: tk.token('{'),
+  // RBRACE: tk.token('}'),
+  // COLON: tk.token(':'),
+  // LBRACKET: tk.token('['),
+  // RBRACKET: tk.token(']'),
+  // COMMA: tk.token(','),
+
+  // LBRACE: tk.token(/{/),
+  // RBRACE: tk.token(/}/),
+  // COLON: tk.token(/:/),
+  // LBRACKET: tk.token(/\[/),
+  // RBRACKET: tk.token(/\]/),
+  // COMMA: tk.token(/,/),
+
+  CTRL:  tk.token(/\{|\}|:|\[|\]|,/),
+  STR:   tk.token(/"(?:\\"|[^"])*"/).map(r => r.match[0].slice(1, -1)),
+  NUM:   tk.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/).map(r => parseFloat(r.match[0])),
   CONST: tk.token(/true|false|null/).map(r => {
     var s = r.match[1]
     return s === 'true' ? true :
@@ -27,25 +41,25 @@ const Array = Seq(
               '[',
   { res:      Json.SeparatedBy(',') },
               ']'
-) // .map(r => r.res)// .map(r => null)
+).map(r => r.res)// .map(r => null)
 
 const Prop = Seq(
   { key:     T.STR },
              ':',
   { value:   Json }
-) // .map(r => { return { [r.key]: r.value } })
+).map(r => { return { [r.key]: r.value } })
 
 const Obj = Seq(
                 '{',
   { props:      Prop.SeparatedBy(',') },
                 '}'
-) // .map(r => Object.assign({}, ...r.props))// .map(r => null)
+).map(r => Object.assign({}, ...r.props))// .map(r => null)
 
 
 const one = require('./1K_json').json_sample1k
 
 var tokens = tk.tokenize(one)!
-console.log(Json.parse(tokens, 0))
+// console.log(Json.parse(tokens, 0))
 
 
 var ITER = 1000
@@ -60,7 +74,7 @@ console.log(`JSON Elapsed: ${elapsed}ms, ${ITER / (elapsed / 1000)} ops/s`)
 
 var now = Date.now()
 for (var i = 0; i < ITER; i++) {
-  var tokens = tk.tokenize(one)!
+  tk.tokenize(one)!
   Json.parse(tokens, 0)
 }
 var elapsed = Date.now() - now

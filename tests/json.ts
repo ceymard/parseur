@@ -43,9 +43,9 @@ const Obj = Seq(
 
 
 const one = require('./1K_json').json_sample1k
+var ITER = 1000
 
 var now = Date.now()
-var ITER = 10000
 for (var i = 0; i < ITER; i++) {
   JSON.parse(one)
 }
@@ -54,7 +54,6 @@ console.log(`JSON Elapsed: ${elapsed}ms, ${ITER / (elapsed / 1000)} ops/s`)
 
 
 var now = Date.now()
-var ITER = 10000
 for (var i = 0; i < ITER; i++) {
   var tokens = tk.tokenize(one)!
   Json.parse(tokens, 0)

@@ -6,7 +6,7 @@ const T = {
   CTRL: tk.token(/\{|\}|:|\[|\]|,/),
   STR: tk.token(/"(\\"|[^"])*"/).map(r => r.match[0].slice(1, -1)),
   NUM: tk.token(/-?\d+(\.\d+)?([eE][+-]?)?/).map(r => parseFloat(r.match[0])),
-  CONST: tk.token(/\b(true|false|null)\b/).map(r => {
+  CONST: tk.token(/true|false|null/).map(r => {
     var s = r.match[1]
     return s === 'true' ? true :
            s === 'false' ? false :
@@ -27,22 +27,27 @@ const Array = Seq(
               '[',
   { res:      Json.SeparatedBy(',') },
               ']'
-).map(r => null)
+) // .map(r => r.res)// .map(r => null)
 
 const Prop = Seq(
   { key:     T.STR },
              ':',
   { value:   Json }
-).map(r => null)
+) // .map(r => { return { [r.key]: r.value } })
 
 const Obj = Seq(
                 '{',
   { props:      Prop.SeparatedBy(',') },
                 '}'
-).map(r => null)
+) // .map(r => Object.assign({}, ...r.props))// .map(r => null)
 
 
 const one = require('./1K_json').json_sample1k
+
+var tokens = tk.tokenize(one)!
+console.log(Json.parse(tokens, 0))
+
+
 var ITER = 1000
 
 var now = Date.now()

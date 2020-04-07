@@ -1,4 +1,4 @@
-import { Tokenizer, Seq, Either, Rule, Forward, SeparatedBy, NoMatch } from '../index'
+import { Tokenizer, Seq, Either, Rule, Forward } from '../index'
 
 var tk = new Tokenizer()
 
@@ -24,21 +24,21 @@ const Json: Rule<any> = Either(
 )
 
 const Array = Seq(
-  '[',
-  { res:      SeparatedBy(Json, ',') },
-  ']'
+              '[',
+  { res:      Json.SeparatedBy(',') },
+              ']'
 ).map(r => null)
 
 const Prop = Seq(
-  {key:     T.STR},
-  ':',
-  {value:       Json}
+  { key:     T.STR },
+             ':',
+  { value:   Json }
 ).map(r => null)
 
 const Obj = Seq(
-  '{',
-  { props:      SeparatedBy(Prop, ',') },
-  '}'
+                '{',
+  { props:      Prop.SeparatedBy(',') },
+                '}'
 ).map(r => null)
 
 
@@ -47,9 +47,19 @@ const one = require('./1K_json').json_sample1k
 var now = Date.now()
 var ITER = 10000
 for (var i = 0; i < ITER; i++) {
-  var tokens = tk.tokenize(one, true)
-  var result = Json.parse(tokens, 0)
+  JSON.parse(one)
+}
+var elapsed = Date.now() - now
+console.log(`JSON Elapsed: ${elapsed}ms, ${ITER / (elapsed / 1000)} ops/s`)
+
+
+var now = Date.now()
+var ITER = 10000
+for (var i = 0; i < ITER; i++) {
+  var tokens = tk.tokenize(one)!
+  Json.parse(tokens, 0)
 }
 var elapsed = Date.now() - now
 console.log(`Elapsed: ${elapsed}ms, ${ITER / (elapsed / 1000)} ops/s`)
+
 // console.log(result !== NoMatch ? result.res : 'No-Match')

@@ -1,9 +1,16 @@
-/// Still missing ; a way of handling errors gracefully
+// FIXME: Still missing ; a way of handling errors gracefully
 
+/**
+ * NoMatch is both a type and a value and is used as the result
+ * for a rule parse when the rule did not match the input.
+ */
 export const NoMatch = Symbol('no-match')
 export type NoMatch = typeof NoMatch
 
 
+/**
+ * The result of a string processing by [[Tokenizer.tokenize]]
+ */
 export class Token {
   public constructor(
     public def: TokenDef,
@@ -78,8 +85,10 @@ export class Tokenizer {
       break
     }
     // console.log(pos, input.length)
-    if (pos !== input.length)
+    if (pos !== input.length) {
       console.log(`Tokenization failed `, '"' + input.slice(pos, pos + 100) + '"...')
+      return null
+    }
     return res
   }
 }
@@ -142,7 +151,7 @@ export class Rule<T> {
   Repeat() { return Repeat(this) }
   Optional() { return Opt(this) }
   OneOrMore() { return OneOrMore(this) }
-  SeparatedBy(rule: RawRule<any>): Rule<T[]> { return SeparatedBy(this, rule) }
+  SeparatedBy(rule: RawRule<any>): Rule<T[]> { return SeparatedBy(rule, this) }
 
   name(n: string): this {
     this._name = n
@@ -374,7 +383,7 @@ export function Parser<T>(rule: Rule<T>) {
 }
 
 
-export function SeparatedBy<T>(rule: Rule<T>, sep: RawRule<any>): Rule<T[]> {
+export function SeparatedBy<T>(sep: RawRule<any>, rule: Rule<T>): Rule<T[]> {
   return Seq({
     first: rule,
     others: Repeat(Seq(sep, { rule }).map(r => r.rule))

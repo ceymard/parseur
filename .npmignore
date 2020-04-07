@@ -1,2 +1,3 @@
 *.ts
 tests
+node_modules

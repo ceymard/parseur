@@ -1,14 +1,101 @@
+/// Still missing ; a way of handling errors gracefully
 
 export const NoMatch = Symbol('no-match')
-export type TNoMatch = typeof NoMatch
+export type NoMatch = typeof NoMatch
 
-// export type Rule<T> = { regexp: RegExp, action: (match: string, ...matches: string[]) => T }
 
+export class Token {
+  public constructor(
+    public def: TokenDef,
+    public match: RegExpMatchArray,
+    public is_skip: boolean,
+    public line: number,
+    public column: number,
+    public offset: number
+  ) { }
+
+}
+
+// A rule always execs on the first token to be checked
+
+
+// The tokenizer should be able to operate on a stream to create a token stream
+// Also, the rules should be able to use next() or anext() depending on whether they
+// want to parse synchronously or asynchronously
+export class Tokenizer {
+
+  defs = [] as TokenDef[]
+
+  token(def: RegExp, name = '') {
+    // All the regexp we handle are sticky ones.
+    var reg = new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
+    var tdef = new TokenDef(name, reg, false)
+    this.defs.push(tdef)
+    return tdef
+  }
+
+  tokenize(input: string, enable_line_counts = false) {
+    var res: Token[] = []
+    var pos = 0
+    var tokendefs = this.defs
+    var l = tokendefs.length
+    var il = input.length
+    var line = 1
+    var col = 1
+
+    tks: while (true) {
+      if (pos >= il) break
+      for (var i = 0; i < l; i++) {
+        var tkd = tokendefs[i]
+        var reg = tkd._regex
+        reg.lastIndex = pos
+        var match = reg.exec(input)
+        if (!match) continue
+
+        if (enable_line_counts) {
+          var txt = match[0]
+          for (var j = 0, lj = txt.length; j < lj; j++) {
+            if (txt[j] === '\n') {
+              line++
+              col = 1
+            } else {
+              col++
+            }
+          }
+        }
+        res.push(new Token(
+          tkd,
+          match,
+          tkd._skip,
+          line,
+          col,
+          pos
+        ))
+        pos += match[0].length // advancing the position
+        continue tks
+      }
+      // Getting here is an error
+      break
+    }
+    // console.log(pos, input.length)
+    if (pos !== input.length)
+      console.log(`Tokenization failed `, '"' + input.slice(pos, pos + 100) + '"...')
+    return res
+  }
+}
+
+
+/**
+ * An object representing an actual match to a rule.
+ */
 export class ParseResult<T> {
   constructor(public res: T, public pos: number) { }
 }
 
 
+/**
+ * Escape `str` to make it suitable to build a `RegExp`
+ */
 export function escape(str: string) {
   return str.replace(/[?.\[\]\(\)*+$]/g, m => '\\' + m)
 }
@@ -30,23 +117,24 @@ export namespace Res {
 
 export class Rule<T> {
 
-  constructor(public parse: (input: string, pos: number, skip: RegExp | undefined) => TNoMatch | ParseResult<T>) { }
+  constructor(public parse: (input: Token[], pos: number) => NoMatch | ParseResult<T>) { }
+  _name = ''
 
-  map<U>(fn: (res: T, input: string, pos: number, skip: RegExp | undefined, start: number) => U | TNoMatch | ParseResult<U> | Rule<U>): Rule<U> {
-    return new Rule((input, pos, skip) => {
-      var res = this.parse(input, pos, skip)
+  map<U>(fn: (res: T, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U>): Rule<U> {
+    return new Rule((input, pos) => {
+      var res = this.parse(input, pos)
       if (res === NoMatch) return NoMatch
-      var res2 = fn(res.res, input, res.pos, skip, pos)
+      var res2 = fn(res.res, input, res.pos, pos)
       if (res2 === NoMatch) return NoMatch
       if (res2 instanceof ParseResult) return res2
-      if (res2 instanceof Rule) return res2.parse(input, res.pos, skip)
+      if (res2 instanceof Rule) return res2.parse(input, res.pos)
       return Res(res2, res.pos)
     })
   }
 
-  tap(fn: (res: T, input: string, pos: number, skip: RegExp | undefined, start: number) => any) {
-    return this.map((res, input, pos, skip, start) => {
-      fn(res, input, pos, skip, start)
+  tap(fn: (res: T, input: Token[], pos: number, start: number) => any) {
+    return this.map((res, input, pos, start) => {
+      fn(res, input, pos, start)
       return res
     })
   }
@@ -55,6 +143,48 @@ export class Rule<T> {
   Optional() { return Opt(this) }
   OneOrMore() { return OneOrMore(this) }
   SeparatedBy(rule: RawRule<any>): Rule<T[]> { return SeparatedBy(this, rule) }
+
+  name(n: string): this {
+    this._name = n
+    return this
+  }
+
+}
+
+
+export class MappedRule<T> extends Rule<T> {
+  constructor(
+    public parent: Rule<T>,
+    fn: (input: Token[], pos: number) => NoMatch | ParseResult<T>
+  ) { super(fn) }
+
+  name(n: string): this {
+    this.parent.name(n)
+    return this
+  }
+}
+
+
+export class TokenDef extends Rule<Token> {
+  constructor(
+    public _name: string,
+    public _regex: RegExp,
+    public _skip: boolean,
+  ) {
+    super((input, pos) => {
+      var next: Token | undefined
+      while ((next = input[pos++])) {
+        if (next.def === this) return Res(next, pos)
+        if (!next.is_skip) return NoMatch
+      }
+      return NoMatch
+    })
+  }
+
+  skip(): this {
+    this._skip = true
+    return this
+  }
 }
 
 
@@ -72,43 +202,29 @@ export type Result<T> = T extends Rule<infer U> ? U : T extends RegExp ? RegExpM
 
 
 export function Str(str: string): Rule<string> {
-  var search = (input: string, pos: number) => {
-    for (var i = 0, l = str.length; i < l; i++) {
-      if (input[pos + i] !== str[i]) return NoMatch
-    }
-    return Res(str, pos + l)
-  }
-  return new Rule(function (input, pos, skip) {
-    var res = search(input, pos)
-    if (res !== NoMatch) return res
-    if (!skip) return NoMatch
-    skip.lastIndex = pos
-    var mskip = skip.exec(input)
-    if (!mskip) return NoMatch // can't skip, can't parse.
-    return search(input, pos + mskip[0].length)
-  })
+  return new Rule(function StrRule(input, pos) {
+    // start by skipping until we get a non-skip token.
+    var tk: Token | undefined
+    while ((tk = input[pos], tk?.def._skip)) { pos ++ }
+
+    if (tk?.match[0] !== str) return NoMatch
+    return Res(str, pos + 1)
+  }).name(`"${str}"`)
 }
 
 
 export function Reg(reg: RegExp): Rule<RegExpMatchArray> {
-  // make the regexp sticky
-  reg = new RegExp(reg.source, reg.flags + 'y')
-  const search = (input: string, pos: number) => {
-    reg.lastIndex = pos
-    var match = reg.exec(input)
-    if (!match) return NoMatch
-    return Res(match, pos + match[0].length)
-  }
+  return new Rule(function RegexpRule(input, pos) {
+    // start by skipping until we get a non-skip token.
+    var tk: Token | undefined
+    while ((tk = input[pos], tk?.is_skip)) { pos++ }
 
-  return new Rule(function (input, pos, skip) {
-    const res1 = search(input, pos)
-    if (res1 !== NoMatch) return res1
-    if (!skip) return NoMatch
-    skip.lastIndex = pos
-    var mskip = skip.exec(input)
-    if (!mskip) return NoMatch // can't skip, can't parse.
-    return search(input, pos + mskip[0].length)
-  })
+    var inp = tk?.match[0]
+    if (!inp) return NoMatch
+    var match = reg.exec(inp)
+    if (!match) return NoMatch
+    return Res(match, pos + 1)
+  }).name(`/${reg.source}/`)
 }
 
 /**
@@ -144,17 +260,18 @@ export function Seq<T extends (RawRule<any> | {[name: string]: RawRule<any>})[]>
     }
   }
 
-  return new Rule<any>(function (input, pos, skip) {
+  return new Rule<any>(function SeqRule(input, pos) {
     var res = {} as any
     for (var i = 0, l = entries.length; i < l; i++) {
       var key = entries[i][0]
-      var match = entries[i][1].parse(input, pos, skip)
+      var match = entries[i][1].parse(input, pos)
+      // console.log(key, match, entries[i][1])
       if (match === NoMatch) return NoMatch
       pos = match.pos
-      if (key != null) res[key] = match.res
+      if (key !== null) res[key] = match.res
     }
     return Res(res, pos)
-  })
+  }).name(`Seq<${entries.map(e => e[1]._name).join(', ')}>`)
 }
 
 
@@ -164,16 +281,16 @@ export function Seq<T extends (RawRule<any> | {[name: string]: RawRule<any>})[]>
 export function Either<T extends RawRule<any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number]> {
   var _rules = rules.map(r => R(r))
 
-  return new Rule(function (input, pos, skip) {
+  return new Rule(function EitherRule(input, pos) {
     for (var i = 0, l = _rules.length; i < l; i++) {
       var rule = _rules[i]
-      var match = rule.parse(input, pos, skip)
+      var match = rule.parse(input, pos)
       if (match !== NoMatch) {
         return match
       }
     }
     return NoMatch
-  })
+  }).name(`Either<${_rules.map(r => r._name).join(' | ')}>`)
 }
 
 
@@ -190,10 +307,10 @@ export function OneOrMore<R extends RawRule<any>>(r: R) {
  */
 export function Repeat<R extends RawRule<any>>(r: R): Rule<Result<R>[]> {
   var rule = R(r)
-  return new Rule(function (input, pos, skip) {
+  return new Rule(function RepeatRule(input, pos) {
     var res: Result<R>[] = []
-    var rres: ParseResult<any> | TNoMatch
-    while ((rres = rule.parse(input, pos, skip)) !== NoMatch) {
+    var rres: ParseResult<any> | NoMatch
+    while ((rres = rule.parse(input, pos)) !== NoMatch) {
       res.push(rres.res)
       pos = rres.pos
     }
@@ -207,8 +324,8 @@ export function Repeat<R extends RawRule<any>>(r: R): Rule<Result<R>[]> {
  */
 export function Opt<R extends RawRule<any>>(r: R): Rule<Result<R> | null> {
   var rule = R(r)
-  return new Rule(function (input, pos, skip) {
-    var res = rule.parse(input, pos, skip)
+  return new Rule(function OptRule(input, pos) {
+    var res = rule.parse(input, pos)
     if (res === NoMatch) return Res(null, pos)
     return res
   })
@@ -220,58 +337,36 @@ export function Opt<R extends RawRule<any>>(r: R): Rule<Result<R> | null> {
  */
 export function Not<R extends RawRule<any>>(r: R): Rule<null> {
   var rule = R(r)
-  return new Rule(function (input, pos, skip) {
-    var res = rule.parse(input, pos, skip)
+  return new Rule(function NotRule(input, pos) {
+    var res = rule.parse(input, pos)
     if (res === NoMatch) return Res(null, pos)
     return NoMatch
   })
 }
 
 
-/**
- * If provided with a skip rule, any will return a string containing all characters
- * until the next skip.
- */
-export const Any = new Rule((input, pos, skip) => {
-  var mskip: RegExpMatchArray | null
-  if (skip) {
-    while ((skip.lastIndex = pos, mskip = skip.exec(input))) {
-      pos += mskip[0].length
-    }
-    if (pos >= input.length) return NoMatch
-    var res = [] as string[]
-    // now we've skipped, we're on a potential match
-    while ((skip.lastIndex = pos, mskip = skip.exec(input), pos < input.length && mskip === null)) {
-      res.push(input[pos])
-      pos++
-    }
-    return Res(res.join(''), pos)
-  }
-  if (pos >= input.length) return NoMatch
-  return Res(input[pos], pos + 1)
+export const Any = new Rule(function AnyRule(input, pos) {
+  var tok: Token | undefined
+  while ((tok = input[pos], tok && tok.is_skip)) { pos++ }
+  return tok ? Res(tok, pos) : NoMatch
 })
 
 
 export function Forward<T>(rulefn: () => Rule<T>) {
-  return new Rule((input, pos, skip) => {
-    return rulefn().parse(input, pos, skip)
+  return new Rule(function ForwardRule(input, pos) {
+    return rulefn().parse(input, pos)
   })
 }
 
 
-export function Parser<T>(rule: Rule<T>, skip?: RegExp) {
-  skip = skip ? new RegExp(skip.source, skip.flags + 'y') : undefined
-  return function (input: string) {
+export function Parser<T>(rule: Rule<T>) {
+  return function (input: Token[]) {
     Res.max_res = null
-    var res = rule.parse(input, 0, skip)
+    var res = rule.parse(input, 0)
     if (res === NoMatch) return NoMatch
     var pos = res.pos
-    if (skip) {
-      var msk: RegExpMatchArray | null
-      while ((skip.lastIndex = pos, msk = skip.exec(input))) {
-        pos += msk[0].length
-      }
-    }
+    var skip: Token | undefined
+    while ((skip = input[pos], skip && skip.is_skip)) { pos ++ }
     if (pos !== input.length) return NoMatch
     // I should check if there is a skip
     return res

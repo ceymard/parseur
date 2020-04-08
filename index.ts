@@ -233,14 +233,35 @@ export function Str(str: string): Rule<string> {
   }).name(`"${str}"`)
 }
 
+export function S(tpl: TemplateStringsArray): Rule<string>
+export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...values: Rules): Rule<{[K in keyof Rules]: Result<Rules[K]>}>
+export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...values: Rules): Rule<any> {
+  if (tpl.length === 1) return Str(tpl[0])
 
-export function S(tpl: TemplateStringsArray, ...values: any[]) {
-  var val: string[] = []
+  var rules: Rule<any>[] = []
+  var add_to_result: boolean[] = []
   for (var i = 0, l = tpl.length; i < l; i++) {
-    val.push(tpl[i])
-    if (values[i] != null) val.push(values[i])
+    var str = tpl[i].trim()
+    if (str) {
+      rules.push(Str(str))
+      add_to_result.push(false)
+    }
+    if (values[i] != null) {
+      rules.push(values[i])
+      add_to_result.push(true)
+    }
   }
-  return Str(val.join(''))
+  return new Rule(function SRule(input, pos) {
+    var res: any[] = []
+    for (var i = 0, l = rules.length; i < l; i++) {
+      var rule = rules[i]
+      var pres = rule.parse(input, pos)
+      if (pres === NoMatch) return NoMatch
+      pos = pres.pos
+      res.push(pres.res)
+    }
+    return Res(res, pos)
+  })
 }
 
 
@@ -351,11 +372,11 @@ export function Repeat<R extends Rule<any>>(r: R): Rule<Result<R>[]> {
 /**
  *
  */
-export function Opt<T>(r: Rule<T>): Rule<T | null> {
+export function Opt<T>(r: Rule<T>): Rule<T | undefined> {
   var rule = R(r)
   return new Rule(function OptRule(input, pos) {
     var res = rule.parse(input, pos)
-    if (res === NoMatch) return Res(null, pos)
+    if (res === NoMatch) return Res(undefined, pos)
     return res
   })
 }
@@ -382,8 +403,9 @@ export const Any = new Rule(function AnyRule(input, pos) {
 
 
 export function Forward<T>(rulefn: () => Rule<T>) {
+  var cached: any = undefined
   return new Rule(function ForwardRule(input, pos) {
-    return rulefn().parse(input, pos)
+    return (cached ?? (cached = rulefn())).parse(input, pos)
   })
 }
 

@@ -169,7 +169,7 @@ export class Rule<T> {
   Repeat() { return Repeat(this) }
   Optional() { return Opt(this) }
   OneOrMore() { return OneOrMore(this) }
-  SeparatedBy(rule: RawRule<any>): Rule<T[]> { return SeparatedBy(rule, this) }
+  SeparatedBy(rule: Rule<any>): Rule<T[]> { return SeparatedBy(rule, this) }
 
   name(n: string): this {
     this._name = n
@@ -218,13 +218,7 @@ export class TokenDef extends Rule<Token> {
 /**
  *
  */
-export type RawRule<T> = Rule<T> | RegExp | string
-
-
-/**
- *
- */
-export type Result<T> = T extends Rule<infer U> ? U : T extends RegExp ? RegExpExecArray : T extends string ? string : never
+export type Result<T> = T extends Rule<infer U> ? U : never
 
 
 
@@ -237,6 +231,16 @@ export function Str(str: string): Rule<string> {
     if (tk?.match[0] !== str) return NoMatch
     return Res(str, pos + 1)
   }).name(`"${str}"`)
+}
+
+
+export function S(tpl: TemplateStringsArray, ...values: any[]) {
+  var val: string[] = []
+  for (var i = 0, l = tpl.length; i < l; i++) {
+    val.push(tpl[i])
+    if (values[i] != null) val.push(values[i])
+  }
+  return Str(val.join(''))
 }
 
 
@@ -271,12 +275,12 @@ export function R(exp: any) {
 export type UnionToIntersection<U> =
   (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
 
-export function Seq<T extends (RawRule<any> | {[name: string]: RawRule<any>})[]>(...seq: T): Rule<UnionToIntersection<
-  {[K in keyof T]: T[K] extends {[name: string]: RawRule<any>} ?
+export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...seq: T): Rule<UnionToIntersection<
+  {[K in keyof T]: [T[K]] extends [{[name: string]: Rule<any>}] ?
     {[K2 in keyof T[K]]: Result<T[K][K2]>}
     : never
   }[number]
->> {
+> & {}> {
   var entries = [] as [null | string, Rule<any>][]
   for (var _r of seq) {
     if (_r instanceof RegExp || typeof _r === 'string' || _r instanceof Rule) {
@@ -305,26 +309,24 @@ export function Seq<T extends (RawRule<any> | {[name: string]: RawRule<any>})[]>
 /**
  *
  */
-export function Either<T extends RawRule<any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number]> {
-  var _rules = rules.map(r => R(r))
-
+export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number]> {
   return new Rule(function EitherRule(input, pos) {
-    for (var i = 0, l = _rules.length; i < l; i++) {
-      var rule = _rules[i]
+    for (var i = 0, l = rules.length; i < l; i++) {
+      var rule = rules[i]
       var match = rule.parse(input, pos)
       if (match !== NoMatch) {
         return match
       }
     }
     return NoMatch
-  }).name(`Either<${_rules.map(r => r._name).join(' | ')}>`)
+  }).name(`Either<${rules.map(r => r._name).join(' | ')}>`)
 }
 
 
 /**
  *
  */
-export function OneOrMore<R extends RawRule<any>>(r: R) {
+export function OneOrMore<T>(r: Rule<T>) {
   return Repeat(r).map(r => r.length === 0 ? NoMatch : r)
 }
 
@@ -332,7 +334,7 @@ export function OneOrMore<R extends RawRule<any>>(r: R) {
 /**
  *
  */
-export function Repeat<R extends RawRule<any>>(r: R): Rule<Result<R>[]> {
+export function Repeat<R extends Rule<any>>(r: R): Rule<Result<R>[]> {
   var rule = R(r)
   return new Rule(function RepeatRule(input, pos) {
     var res: Result<R>[] = []
@@ -349,7 +351,7 @@ export function Repeat<R extends RawRule<any>>(r: R): Rule<Result<R>[]> {
 /**
  *
  */
-export function Opt<R extends RawRule<any>>(r: R): Rule<Result<R> | null> {
+export function Opt<T>(r: Rule<T>): Rule<T | null> {
   var rule = R(r)
   return new Rule(function OptRule(input, pos) {
     var res = rule.parse(input, pos)
@@ -362,7 +364,7 @@ export function Opt<R extends RawRule<any>>(r: R): Rule<Result<R> | null> {
 /**
  *
  */
-export function Not<R extends RawRule<any>>(r: R): Rule<null> {
+export function Not(r: Rule<any>): Rule<null> {
   var rule = R(r)
   return new Rule(function NotRule(input, pos) {
     var res = rule.parse(input, pos)
@@ -401,7 +403,7 @@ export function Parser<T>(rule: Rule<T>) {
 }
 
 
-export function SeparatedBy<T>(sep: RawRule<any>, rule: Rule<T>): Rule<T[]> {
+export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>): Rule<T[]> {
   return Seq({
     first: rule,
     others: Repeat(Seq(sep, { rule }).map(r => r.rule))

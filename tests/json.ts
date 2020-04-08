@@ -1,4 +1,4 @@
-import { Tokenizer, Seq, Either, Rule, Forward } from '../index'
+import { Tokenizer, Seq, Either, Rule, Forward, S } from '../index'
 
 var tk = new Tokenizer()
 
@@ -38,21 +38,21 @@ const Json: Rule<any> = Either(
 )
 
 const Array = Seq(
-              '[',
-  { res:      Json.SeparatedBy(',') },
-              ']'
+            S`[`,
+  { res:      Json.SeparatedBy(S`,`) },
+            S`]`
 ).map(r => r.res)// .map(r => null)
 
 const Prop = Seq(
   { key:     T.STR },
-             ':',
+           S`:`,
   { value:   Json }
 ).map(r => { return { [r.key]: r.value } })
 
 const Obj = Seq(
-                '{',
-  { props:      Prop.SeparatedBy(',') },
-                '}'
+              S`{`,
+  { props:      Prop.SeparatedBy(S`,`) },
+              S`}`
 ).map(r => Object.assign({}, ...r.props))// .map(r => null)
 
 

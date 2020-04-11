@@ -43,8 +43,7 @@ export type TokenDefRet = {
 // want to parse synchronously or asynchronously
 export class Tokenizer {
 
-  defs = [] as TokenDef[]
-  deftable = [] as [number, TokenDef[]][]
+  token_defs = [] as TokenDef[]
 
   nameRules() {
     for (var key of Object.getOwnPropertyNames(this)) {
@@ -59,14 +58,14 @@ export class Tokenizer {
     // All the regexp we handle are sticky ones.
     var reg = typeof def === 'string' ? def : new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
     var tdef = new TokenDef(name, reg, false)
-    this.defs.push(tdef)
+    this.token_defs.push(tdef)
     return tdef
   }
 
   tokenize(input: string, enable_line_counts = false) {
     var res: Token[] = []
     var pos = 0
-    var tokendefs = this.defs
+    var tokendefs = this.token_defs
     var l = tokendefs.length
     var il = input.length
     var line = 1
@@ -244,6 +243,20 @@ export class TokenDef extends Rule<Token> {
         if (!next.is_skip) return NoMatch
       }
       return NoMatch
+    })
+  }
+
+  as(str: RegExp): Rule<RegExpExecArray>
+  as(str: string): Rule<string>
+  as(str: string | RegExp): Rule<string | RegExpExecArray> {
+    return this.map(res => {
+      var match = res.match[0]
+      if (typeof str === 'string') {
+        return match === str ? match : NoMatch
+      }
+      var m2 = str.exec(match)
+      if (!m2) return NoMatch
+      return m2
     })
   }
 

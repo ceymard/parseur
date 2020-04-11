@@ -1,5 +1,14 @@
 // FIXME: Still missing ; a way of handling errors gracefully
 
+var DEBUG = false
+// A debug map that will hold which rules mapped the tokens
+// export var DEBUG_MAP = new WeakMap<Token, string[]>()
+export var DEBUG_STACK: string[] = []
+
+export function setDebug(debug: boolean = true) {
+  DEBUG = debug
+}
+
 /**
  * NoMatch is both a type and a value and is used as the result
  * for a rule parse when the rule did not match the input.
@@ -20,7 +29,6 @@ export class Token {
     public column: number,
     public offset: number
   ) { }
-
 }
 
 // A rule always execs on the first token to be checked
@@ -37,6 +45,15 @@ export class Tokenizer {
 
   defs = [] as TokenDef[]
   deftable = [] as [number, TokenDef[]][]
+
+  nameRules() {
+    for (var key of Object.getOwnPropertyNames(this)) {
+      var p = (this as any)[key]
+      if (p instanceof Rule) {
+        p.name(key)
+      }
+    }
+  }
 
   token(def: RegExp | string, name = '') {
     // All the regexp we handle are sticky ones.
@@ -75,7 +92,9 @@ export class Tokenizer {
           reg.lastIndex = pos
           match = reg.exec(input)
         }
+
         if (!match) continue
+        // console.log(`'${match[0]}'`, reg, typeof match[0])
 
         if (enable_line_counts) {
           var txt = match[0]
@@ -104,6 +123,8 @@ export class Tokenizer {
     }
     // console.log(pos, input.length)
     if (pos !== input.length) {
+      // console.log(res.map(r => `${r.match[0]}`))
+      // FIXME: report error differently
       console.log(`Tokenization failed `, '"' + input.slice(pos, pos + 100) + '"...')
       return null
     }
@@ -124,7 +145,7 @@ export class ParseResult<T> {
  * Escape `str` to make it suitable to build a `RegExp`
  */
 export function escape(str: string) {
-  return str.replace(/[?.\[\]\(\)*+$]/g, m => '\\' + m)
+  return str.replace(/[?.\$\^\{\}\[\]\(\)*+$\|]/g, m => '\\' + m)
 }
 
 
@@ -132,8 +153,10 @@ export function Res<T>(res: T, pos: number) {
   var r = new ParseResult(res, pos)
   var max = Res.max_res
   if (!max) Res.max_res = r
-  else if (max && max.pos -1 < r.pos)
+  else if (max && r.pos > max.pos) {
     Res.max_res = r
+    if (DEBUG) r.debug = DEBUG_STACK
+  }
   return r
 }
 
@@ -144,8 +167,20 @@ export namespace Res {
 
 export class Rule<T> {
 
-  constructor(public parse: (input: Token[], pos: number) => NoMatch | ParseResult<T>) { }
+  constructor(public parse: (this: Rule<any>, input: Token[], pos: number) => NoMatch | ParseResult<T>) {
+    if (DEBUG) {
+      this.parse = (input: Token[], pos: number) => {
+        // if (!input[pos]) return NoMatch
+        DEBUG_STACK.push(this.Name)
+        var res = parse.call(this, input, pos)
+        DEBUG_STACK.pop()
+        return res
+      }
+    }
+  }
+
   _name = ''
+  _build_name: null | (() => string) = null
 
   map<U>(fn: (res: T, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U>): Rule<U> {
     return new Rule((input, pos) => {
@@ -166,14 +201,18 @@ export class Rule<T> {
     })
   }
 
-  Repeat() { return Repeat(this) }
-  Optional() { return Opt(this) }
-  OneOrMore() { return OneOrMore(this) }
-  SeparatedBy(rule: Rule<any>): Rule<T[]> { return SeparatedBy(rule, this) }
-
   name(n: string): this {
     this._name = n
     return this
+  }
+
+  nameBuild(fn: () => string): this {
+    this._build_name = fn
+    return this
+  }
+
+  get Name() {
+    return this._name || this._build_name?.() || this.parse.name
   }
 
 }
@@ -222,35 +261,53 @@ export type Result<T> = T extends Rule<infer U> ? U : never
 
 
 
-export function Str(str: string): Rule<string> {
+export function Str(...strs: (string | RegExp)[]): Rule<string> {
+  if (!strs[0]) throw new Error('No patterns')
   return new Rule(function StrRule(input, pos) {
     // start by skipping until we get a non-skip token.
     var tk: Token | undefined
     while ((tk = input[pos], tk?.def._skip)) { pos ++ }
+    if (!tk) return NoMatch
 
-    if (tk?.match[0] !== str) return NoMatch
-    return Res(str, pos + 1)
-  }).name(`"${str}"`)
+    var matched = tk.match[0]
+    for (var i = 0, l = strs.length; i < l; i++) {
+      var str = strs[i]
+      if (typeof str === 'string') {
+        if (matched !== str) continue
+        return Res(str, pos + 1)
+      } else {
+        var mt = str.exec(matched)
+        if (mt == null) continue
+        return Res(matched, pos + 1)
+      }
+    }
+    return NoMatch
+  }).name(`"${strs.join(', ')}"`)
 }
 
 export function S(tpl: TemplateStringsArray): Rule<string>
+export function S<T>(tpl: TemplateStringsArray, rule: Rule<T>): Rule<T>
 export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...values: Rules): Rule<{[K in keyof Rules]: Result<Rules[K]>}>
 export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...values: Rules): Rule<any> {
-  if (tpl.length === 1) return Str(tpl[0])
+  if (tpl.length === 1 && !tpl[0].match(/[\s\n]/)) return Str(tpl[0])
 
   var rules: Rule<any>[] = []
   var add_to_result: boolean[] = []
+  var nb_rules = 0
   for (var i = 0, l = tpl.length; i < l; i++) {
-    var str = tpl[i].trim()
-    if (str) {
+    for (var all = tpl[i].split(/[\s\n]+/g), is = 0, il = all.length; is < il; is++) {
+      var str = all[is]
+      if (!str?.trim()) continue
       rules.push(Str(str))
       add_to_result.push(false)
     }
     if (values[i] != null) {
       rules.push(values[i])
       add_to_result.push(true)
+      nb_rules++
     }
   }
+
   return new Rule(function SRule(input, pos) {
     var res: any[] = []
     for (var i = 0, l = rules.length; i < l; i++) {
@@ -258,9 +315,9 @@ export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...value
       var pres = rule.parse(input, pos)
       if (pres === NoMatch) return NoMatch
       pos = pres.pos
-      res.push(pres.res)
+      if (add_to_result[i]) res.push(pres.res)
     }
-    return Res(res, pos)
+    return Res(nb_rules === 1 ? res[0] : res, pos)
   })
 }
 
@@ -323,7 +380,7 @@ export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...se
       if (key !== null) res[key] = match.res
     }
     return Res(res, pos)
-  }).name(`Seq<${entries.map(e => e[1]._name).join(', ')}>`)
+  }).nameBuild(() => `Seq<${entries.map(e => e[1].Name).join(', ')}>`)
 }
 
 
@@ -340,22 +397,14 @@ export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]
       }
     }
     return NoMatch
-  }).name(`Either<${rules.map(r => r._name).join(' | ')}>`)
+  }).nameBuild(() => `Either<${rules.map(r => r.Name).join(' | ')}>`)
 }
 
 
 /**
  *
  */
-export function OneOrMore<T>(r: Rule<T>) {
-  return Repeat(r).map(r => r.length === 0 ? NoMatch : r)
-}
-
-
-/**
- *
- */
-export function Repeat<R extends Rule<any>>(r: R): Rule<Result<R>[]> {
+export function Repeat<R extends Rule<any>>(r: R, opts?: { min?: number, max?: number }): Rule<Result<R>[]> {
   var rule = R(r)
   return new Rule(function RepeatRule(input, pos) {
     var res: Result<R>[] = []
@@ -365,7 +414,7 @@ export function Repeat<R extends Rule<any>>(r: R): Rule<Result<R>[]> {
       pos = rres.pos
     }
     return Res(res, pos)
-  })
+  }).nameBuild(() => `Repeat(${r.Name})`)
 }
 
 
@@ -378,7 +427,7 @@ export function Opt<T>(r: Rule<T>): Rule<T | undefined> {
     var res = rule.parse(input, pos)
     if (res === NoMatch) return Res(undefined, pos)
     return res
-  })
+  }).nameBuild(() => `Opt(${r.Name})`)
 }
 
 
@@ -391,7 +440,7 @@ export function Not(r: Rule<any>): Rule<null> {
     var res = rule.parse(input, pos)
     if (res === NoMatch) return Res(null, pos)
     return NoMatch
-  })
+  }).nameBuild(() => `Not(${r.Name})`)
 }
 
 
@@ -399,14 +448,17 @@ export const Any = new Rule(function AnyRule(input, pos) {
   var tok: Token | undefined
   while ((tok = input[pos], tok && tok.is_skip)) { pos++ }
   return tok ? Res(tok, pos) : NoMatch
-})
+}).name('Any')
 
 
 export function Forward<T>(rulefn: () => Rule<T>) {
-  var cached: any = undefined
-  return new Rule(function ForwardRule(input, pos) {
-    return (cached ?? (cached = rulefn())).parse(input, pos)
+  var res = new Rule(function ForwardRule(input, pos) {
+    var rule = rulefn()
+    res.parse = rule.parse.bind(rule)
+    res.name(rule._name)
+    return rule.parse(input, pos)
   })
+  return res
 }
 
 
@@ -425,9 +477,134 @@ export function Parser<T>(rule: Rule<T>) {
 }
 
 
-export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>): Rule<T[]> {
-  return Seq({
-    first: rule,
-    others: Repeat(Seq(sep, { rule }).map(r => r.rule))
-  }).map(r => [r.first, ...r.others])
+export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>, opts?: {trailing?: boolean, leading?: boolean}) {
+  return new Rule(function SeparatedBy(input, pos) {
+    var res: T[] = []
+    if (opts?.leading) {
+      var lres = sep.parse(input, pos)
+      if (lres !== NoMatch) pos = lres.pos
+    }
+
+    var at_sep = false
+    while (true) {
+      var rres = rule.parse(input, pos)
+      if (rres === NoMatch) { at_sep = false; break }
+      res.push(rres.res)
+      pos = rres.pos
+
+      var sres = sep.parse(input, pos)
+      if (sres === NoMatch) { at_sep = true; break }
+      pos = sres.pos
+    }
+
+    if (!at_sep && !opts?.trailing) return NoMatch
+    return Res(res, pos)
+  }).nameBuild(() => `SeparatedBy(${sep.Name}, ${rule.Name})`)
+}
+
+
+export interface OpNodeBase {
+  level: number
+}
+
+export interface OpBinary<T, Op> {
+  Op: Op
+  left: OpNode<T, Op>
+  right: OpNode<T, Op>
+}
+
+export interface OpUnary<T, Op> {
+  Op: Op
+  value: OpNode<T, Op>
+}
+
+export class TreeBuilder<T, Op> {
+  root: T | undefined
+
+  add(value: T, op: Op, level: number) {
+
+  }
+}
+
+export type OpNode<T, Op> = OpBinary<T, Op> | OpUnary<T, Op> | T
+function addOp<T, Op>(node: OpNode<T, Op> | undefined, value: T): OpNode<T, Op> {
+  if (node == null) return value
+}
+
+
+
+export function Operator<T, Operators extends Rule<any>[]>(operand: Rule<T>, ...op: Operators): Rule<OpNode<T, {[K in keyof Operators]: Result<Operators[K]>}[number]>> {
+  // var left_assoc = opts?.associativity !== 'right'
+
+  var unary_left: Rule<any>[] = [] //op.filter(op => !!(op as any)[sym_unary_left])
+  var binary: Rule<any>[] = []
+  var right_assoc: boolean[] = []
+  var unary_right: Rule<any>[] = []
+  for (var _o of op as any[]) {
+    if (_o[sym_unary_left]) {
+      unary_left.push(_o)
+    } else if (_o[sym_unary_right]) {
+      unary_right.push(_o)
+    } else {
+      binary.push(_o)
+      right_assoc.push(!!_o[sym_assoc_right])
+    }
+  }
+
+  return new Rule(function BinOp(input, pos): ParseResult<OpNode<T, any>> | NoMatch {
+    var res: OpNode<T, any> | undefined
+    var current_op_rule: any
+    var current_op: any
+    var current_op_level!: number
+
+    operand: while (true) {
+      // First try to parse the
+
+      var roperand = operand.parse(input, pos)
+      // if the operand doesn't match, it is an error, because we either did not match anything,
+      // or we previously matched an operator and it has no rhs.
+      if (roperand === NoMatch) { return NoMatch }
+      pos = roperand.pos
+      var current_operand = roperand.res
+
+      // Before trying the binary operators, try all the right suffix
+
+      // FIXME : Add the operand
+
+      // Find the first operator we have
+      // the lower the number, the higher the precedence.
+      for (var i = 0, l = binary.length; i < l; i++) {
+        var top = op[i]
+        var rop = top.parse(input, pos)
+        if (rop === NoMatch) continue
+        current_op = rop.res
+        current_op_rule = top
+        current_op_level = i
+        pos = rop.pos
+        // Continue to the operand
+        continue operand
+      }
+      break
+    }
+
+    return Res(res!, pos)
+  })
+}
+
+const sym_unary_left = Symbol('unary-left')
+Operator.UnaryLeft = function <T>(r: Rule<T>): Rule<T> {
+  (r as any)[sym_unary_left] = true
+  return r
+}
+
+const sym_unary_right = Symbol('unary-right')
+Operator.UnaryRight = function <T>(r: Rule<T>): Rule<T> {
+  (r as any)[sym_unary_right] = true
+  return r
+}
+
+const sym_assoc_right = Symbol('right-assoc')
+Operator.AssocRight = function <T>(r: Rule<T>): Rule<T> {
+  (r as any)[sym_assoc_right] = true
+  return r
 }

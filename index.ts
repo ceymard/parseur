@@ -386,8 +386,9 @@ export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...se
   return new Rule<any>(function SeqRule(input, pos) {
     var res = {} as any
     for (var i = 0, l = entries.length; i < l; i++) {
-      var key = entries[i][0]
-      var match = entries[i][1].parse(input, pos)
+      var entry = entries[i]
+      var key = entry[0]
+      var match = entry[1].parse(input, pos)
       // console.log(key, match, entries[i][1])
       if (match === NoMatch) return NoMatch
       pos = match.pos

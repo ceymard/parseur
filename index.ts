@@ -23,7 +23,7 @@ export type NoMatch = typeof NoMatch
 export class Token {
   public constructor(
     public def: TokenDef,
-    public match: RegExpExecArray,
+    public match: string,
     public is_skip: boolean,
     public line: number,
     public column: number,
@@ -111,27 +111,22 @@ export class Tokenizer {
       for (var i = 0; i < l; i++) {
         var tkd = tokendefs[i]
         var reg = tkd._regex
-        var match: RegExpExecArray | null
+        var match: string | undefined
         if (typeof reg === 'string') {
           var tomatch = input.slice(pos, pos + reg.length)
-          if (reg === tomatch) {
-            match = [reg] as RegExpExecArray
-            match!.input = input
-            match!.groups = {}
-            match!.index = pos
-          } else {
-            match = null
-          }
+          match = reg === tomatch ? reg : undefined
         } else {
           reg.lastIndex = pos
-          match = reg.exec(input)
+          var m = reg.exec(input)
+          if (!m) continue
+          match = m[0]
         }
 
-        if (!match) continue
+        if (match == undefined) continue
         // console.log(`'${match[0]}'`, reg, typeof match[0])
 
         if (enable_line_counts) {
-          var txt = match[0]
+          var txt = match
           for (var j = 0, lj = txt.length; j < lj; j++) {
             if (txt[j] === '\n') {
               line++
@@ -149,7 +144,7 @@ export class Tokenizer {
           col,
           pos
         ))
-        pos += match[0].length // advancing the position
+        pos += match.length // advancing the position
         continue tks
       }
       // Getting here is an error
@@ -300,7 +295,7 @@ export type Result<T> = T extends Rule<infer U> ? U : never
 
 
 
-export function Str(...strs: (string | RegExp)[]): Rule<string> {
+export function Str(...strs: string[]): Rule<string> {
   if (!strs[0]) throw new Error('No patterns')
   return new Rule(function StrRule(input, pos) {
     // start by skipping until we get a non-skip token.
@@ -311,14 +306,8 @@ export function Str(...strs: (string | RegExp)[]): Rule<string> {
     var matched = tk.match[0]
     for (var i = 0, l = strs.length; i < l; i++) {
       var str = strs[i]
-      if (typeof str === 'string') {
-        if (matched !== str) continue
-        return Res(str, pos + 1)
-      } else {
-        var mt = str.exec(matched)
-        if (mt == null) continue
-        return Res(matched, pos + 1)
-      }
+      if (matched !== str) continue
+      return Res(str, pos + 1)
     }
     return NoMatch
   }).name(`"${strs.join(', ')}"`)

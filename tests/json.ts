@@ -31,11 +31,11 @@ const T = {
 }
 
 var rulemap = new Map<TokenDef, Rule<any>>()
-  .set(T.STR, T.STR.map(r => r.match[0].slice(1, -1)))
+  .set(T.STR, T.STR.map(r => r.match.slice(1, -1)))
   .set(T.TRUE, T.TRUE.map(() => true))
   .set(T.FALSE, T.FALSE.map(() => false))
   .set(T.NULL, T.NULL.map(() => null))
-  .set(T.NUM, T.NUM.map(r => parseFloat(r.match[0])))
+  .set(T.NUM, T.NUM.map(r => parseFloat(r.match)))
   .set(T.LBRACE, Forward(() => Obj))
   .set(T.LBRACKET, Forward(() => Array))
 
@@ -48,11 +48,11 @@ const Json: Rule<any> = new Rule((input, pos) => {
 })
 
 // const Json: Rule<any> = Either(
-//   T.STR.map(r => r.match[0].slice(1, -1)),
+//   T.STR.map(r => r.match.slice(1, -1)),
 //   T.TRUE.map(() => true),
 //   T.FALSE.map(() => false),
 //   T.NULL.map(() => null),
-//   T.NUM.map(r => parseFloat(r.match[0])),
+//   T.NUM.map(r => parseFloat(r.match)),
 //   Forward(() => Array),
 //   Forward(() => Obj)
 // )
@@ -60,7 +60,7 @@ const Json: Rule<any> = new Rule((input, pos) => {
 const Array = S`[ ${SeparatedBy(S`,`, Json)} ]`
 
 const Prop = Seq(
-  { key:     T.STR.map(m => m.match[0].slice(1, -1)) },
+  { key:     T.STR.map(m => m.match.slice(1, -1)) },
            S`:`,
   { value:   Json }
 )
@@ -79,17 +79,7 @@ const Obj = S`{ ${SeparatedBy(S`,`, Prop)} }`
 const one = require('./1K_json').json_sample1k
 
 var tokens = tk.tokenize(one)!
-console.log(Json.parse(tokens, 0))
-
-
-var ITER = 1000
-
-// var now = Date.now()
-// for (var i = 0; i < ITER; i++) {
-//   JSON.parse(one)
-// }
-// var elapsed = Date.now() - now
-// console.log(`JSON Elapsed: ${elapsed}ms, ${ITER / (elapsed / 1000)} ops/s`)
+console.log(Json.parse(tokens, 0).res)
 
 
 import { Suite } from 'benchmark'

@@ -92,7 +92,7 @@ var s = new Suite()
 // })
 
 s.add(function JsonParse() {
-  tk.tokenize(one)!
+  tk.tokenize(one, { forget_skips: true })!
   Json.parse(tokens, 0)
 })
 

@@ -85,9 +85,11 @@ export class Tokenizer {
     return tdef
   }
 
-  tokenize(input: string, enable_line_counts = false) {
+  tokenize(input: string, opts?: { enable_line_counts?: boolean, forget_skips?: boolean }) {
     var res: Token[] = []
     var pos = 0
+    var enable_line_counts = !!opts?.enable_line_counts
+    var forget_skips = !!opts?.forget_skips
     var tkdefs = this.token_defs
     var tokendefs = this.token_defs
     var l = tokendefs.length
@@ -136,14 +138,16 @@ export class Tokenizer {
             }
           }
         }
-        res.push(new Token(
-          tkd,
-          match,
-          tkd._skip,
-          line,
-          col,
-          pos
-        ))
+        if (!forget_skips || !tkd._skip) {
+          res.push(new Token(
+            tkd,
+            match,
+            tkd._skip,
+            line,
+            col,
+            pos
+          ))
+        }
         pos += match.length // advancing the position
         continue tks
       }

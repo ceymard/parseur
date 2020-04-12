@@ -45,6 +45,9 @@ export class Tokenizer {
 
   token_defs = [] as TokenDef[]
 
+  // Accelerator for characters
+  token_table: (TokenDef[] | null)[] = new Array(256).fill(null)
+
   nameRules() {
     for (var key of Object.getOwnPropertyNames(this)) {
       var p = (this as any)[key]
@@ -54,25 +57,57 @@ export class Tokenizer {
     }
   }
 
-  token(def: RegExp | string, name = '') {
+  token(def: RegExp | string, accel?: string) {
     // All the regexp we handle are sticky ones.
+
     var reg = typeof def === 'string' ? def : new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
-    var tdef = new TokenDef(name, reg, false)
-    this.token_defs.push(tdef)
+    var tdef = new TokenDef(this, reg, false)
+    var added: boolean = false
+
+    const add_to_ttable = (code: number) => {
+      added = true;
+      (this.token_table[code] = this.token_table[code] ?? []).push(tdef)
+    }
+
+    if (accel) {
+      for (var i = 0, l = accel.length; i < l; i++) {
+        ccode = accel[i].charCodeAt(0)
+        add_to_ttable(ccode)
+      }
+    }
+
+    if (typeof def === 'string') {
+      add_to_ttable(def.charCodeAt(0))
+      var ccode = def.charCodeAt(0)
+    }
+
+    if (!added) this.token_defs.push(tdef)
     return tdef
   }
 
   tokenize(input: string, enable_line_counts = false) {
     var res: Token[] = []
     var pos = 0
+    var tkdefs = this.token_defs
     var tokendefs = this.token_defs
     var l = tokendefs.length
+    var tktbl = this.token_table
     var il = input.length
     var line = 1
     var col = 1
 
     tks: while (true) {
       if (pos >= il) break
+
+      var accel = tktbl[input[pos].charCodeAt(0)]
+      if (accel) {
+        l = accel.length
+        tokendefs = accel
+      } else {
+        l = tkdefs.length
+        tokendefs = tkdefs
+      }
+
       for (var i = 0; i < l; i++) {
         var tkd = tokendefs[i]
         var reg = tkd._regex
@@ -136,6 +171,7 @@ export class Tokenizer {
  * An object representing an actual match to a rule.
  */
 export class ParseResult<T> {
+  debug?: string[]
   constructor(public res: T, public pos: number) { }
 }
 
@@ -164,6 +200,9 @@ export namespace Res {
 }
 
 
+/**
+ * A rule is given a chance to init before it parses.
+ */
 export class Rule<T> {
 
   constructor(public parse: (this: Rule<any>, input: Token[], pos: number) => NoMatch | ParseResult<T>) {
@@ -217,22 +256,9 @@ export class Rule<T> {
 }
 
 
-export class MappedRule<T> extends Rule<T> {
-  constructor(
-    public parent: Rule<T>,
-    fn: (input: Token[], pos: number) => NoMatch | ParseResult<T>
-  ) { super(fn) }
-
-  name(n: string): this {
-    this.parent.name(n)
-    return this
-  }
-}
-
-
 export class TokenDef extends Rule<Token> {
   constructor(
-    public _name: string,
+    public tokenizer: Tokenizer,
     public _regex: RegExp | string,
     public _skip: boolean,
   ) {
@@ -349,19 +375,6 @@ export function Reg(reg: RegExp): Rule<RegExpExecArray> {
   }).name(`/${reg.source}/`)
 }
 
-/**
- *
- */
-export function R(exp: RegExp): Rule<RegExpExecArray>
-export function R(exp: string): Rule<string>
-export function R<T>(exp: Rule<T>): Rule<T>
-export function R<T>(exp: string | RegExp | Rule<T>): Rule<string | RegExpExecArray | T>
-export function R(exp: any) {
-  if (exp instanceof Rule) return exp
-  if (typeof exp === 'string') return Str(exp)
-  return Reg(exp)
-}
-
 
 export type UnionToIntersection<U> =
   (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
@@ -373,13 +386,12 @@ export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...se
   }[number]
 > & {}> {
   var entries = [] as [null | string, Rule<any>][]
-  for (var _r of seq) {
-    if (_r instanceof RegExp || typeof _r === 'string' || _r instanceof Rule) {
-      entries.push([null, R(_r)])
-    } else {
+  for (let r of seq) {
       // This is a named rule object.
-      entries.push(...Object.entries(_r).map(([key, _r]) => [key, R(_r)] as [string, Rule<any>]))
-    }
+    if (r instanceof Rule)
+      entries.push([null, r])
+    else
+      entries.push(...Object.entries(r).map(([key, _r]) => [key, _r] as [string, Rule<any>]))
   }
 
   return new Rule<any>(function SeqRule(input, pos) {
@@ -398,7 +410,10 @@ export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...se
 
 
 /**
+ * FIXME: either should have a map to tokendefs of the first tokens of its child rules
+ *    to avoid checking for useless match arms.
  *
+ * Most rules should be able to be run once before calling their actual parse methods.
  */
 export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number]> {
   return new Rule(function EitherRule(input, pos) {
@@ -417,8 +432,7 @@ export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]
 /**
  *
  */
-export function Repeat<R extends Rule<any>>(r: R, opts?: { min?: number, max?: number }): Rule<Result<R>[]> {
-  var rule = R(r)
+export function Repeat<R extends Rule<any>>(rule: R, opts?: { min?: number, max?: number }): Rule<Result<R>[]> {
   return new Rule(function RepeatRule(input, pos) {
     var res: Result<R>[] = []
     var rres: ParseResult<any> | NoMatch
@@ -427,33 +441,31 @@ export function Repeat<R extends Rule<any>>(r: R, opts?: { min?: number, max?: n
       pos = rres.pos
     }
     return Res(res, pos)
-  }).nameBuild(() => `Repeat(${r.Name})`)
+  }).nameBuild(() => `Repeat(${rule.Name})`)
 }
 
 
 /**
  *
  */
-export function Opt<T>(r: Rule<T>): Rule<T | undefined> {
-  var rule = R(r)
+export function Opt<T>(rule: Rule<T>): Rule<T | undefined> {
   return new Rule(function OptRule(input, pos) {
     var res = rule.parse(input, pos)
     if (res === NoMatch) return Res(undefined, pos)
     return res
-  }).nameBuild(() => `Opt(${r.Name})`)
+  }).nameBuild(() => `Opt(${rule.Name})`)
 }
 
 
 /**
  *
  */
-export function Not(r: Rule<any>): Rule<null> {
-  var rule = R(r)
+export function Not(rule: Rule<any>): Rule<null> {
   return new Rule(function NotRule(input, pos) {
     var res = rule.parse(input, pos)
     if (res === NoMatch) return Res(null, pos)
     return NoMatch
-  }).nameBuild(() => `Not(${r.Name})`)
+  }).nameBuild(() => `Not(${rule.Name})`)
 }
 
 
@@ -569,6 +581,16 @@ export function Operator<T, Operators extends Rule<any>[]>(operand: Rule<T>, ...
     var current_op_rule: any
     var current_op: any
     var current_op_level!: number
+
+    function expression(pos: number, rbp: number) {
+      // current token
+      // fetch next token
+      // nud() on current token
+      while (rbp < tk.lbp) {
+
+        // do stuff and call led()
+      }
+    }
 
     operand: while (true) {
       // First try to parse the

@@ -31,11 +31,11 @@ const T = {
 }
 
 var rulemap = new Map<TokenDef, Rule<any>>()
-  .set(T.STR, T.STR.map(r => r.match.slice(1, -1)))
+  .set(T.STR, T.STR.map(r => r.str.slice(1, -1)))
   .set(T.TRUE, T.TRUE.map(() => true))
   .set(T.FALSE, T.FALSE.map(() => false))
   .set(T.NULL, T.NULL.map(() => null))
-  .set(T.NUM, T.NUM.map(r => parseFloat(r.match)))
+  .set(T.NUM, T.NUM.map(r => parseFloat(r.str)))
   .set(T.LBRACE, Forward(() => Obj))
   .set(T.LBRACKET, Forward(() => Array))
 
@@ -60,7 +60,7 @@ const Json: Rule<any> = new Rule((input, pos) => {
 const Array = S`[ ${SeparatedBy(S`,`, Json)} ]`
 
 const Prop = Seq(
-  { key:     T.STR.map(m => m.match.slice(1, -1)) },
+  { key:     T.STR.map(m => m.str.slice(1, -1)) },
            S`:`,
   { value:   Json }
 )

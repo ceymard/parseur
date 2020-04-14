@@ -23,7 +23,7 @@ export type NoMatch = typeof NoMatch
 export class Token {
   public constructor(
     public def: TokenDef,
-    public match: string,
+    public str: string,
     public is_skip: boolean,
     public line: number,
     public column: number,
@@ -37,6 +37,7 @@ export type TokenDefRet = {
   def: TokenDef,
   skip: boolean
 }
+
 
 // The tokenizer should be able to operate on a stream to create a token stream
 // Also, the rules should be able to use next() or anext() depending on whether they
@@ -199,6 +200,22 @@ export namespace Res {
 }
 
 
+export type MapFn<T, U> = (res: T, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U>
+
+
+export function map<T, U>(rule: Rule<T>, fn: MapFn<T, U>) {
+  return (input: Token[], pos: number) => {
+    var res = rule.parse(input, pos)
+    if (res === NoMatch) return NoMatch
+    var res2 = fn(res.res, input, res.pos, pos)
+    if (res2 === NoMatch) return NoMatch
+    if (res2 instanceof ParseResult) return res2
+    if (res2 instanceof Rule) return res2.parse(input, res.pos)
+    return Res(res2, res.pos)
+  }
+}
+
+
 /**
  * A rule is given a chance to init before it parses.
  */
@@ -210,6 +227,7 @@ export class Rule<T> {
         // if (!input[pos]) return NoMatch
         DEBUG_STACK.push(this.Name)
         var res = parse.call(this, input, pos)
+        // console.log(input[pos].str, ' - ', DEBUG_STACK.join('::'), res !== NoMatch)
         DEBUG_STACK.pop()
         return res
       }
@@ -219,16 +237,10 @@ export class Rule<T> {
   _name = ''
   _build_name: null | (() => string) = null
 
-  map<U>(fn: (res: T, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U>): Rule<U> {
-    return new Rule((input, pos) => {
-      var res = this.parse(input, pos)
-      if (res === NoMatch) return NoMatch
-      var res2 = fn(res.res, input, res.pos, pos)
-      if (res2 === NoMatch) return NoMatch
-      if (res2 instanceof ParseResult) return res2
-      if (res2 instanceof Rule) return res2.parse(input, res.pos)
-      return Res(res2, res.pos)
-    })
+  map<U>(fn: MapFn<T, U>): Rule<U> {
+    var r = new Rule(map(this, fn))
+    r._name = this.Name
+    return r
   }
 
   tap(fn: (res: T, input: Token[], pos: number, start: number) => any) {
@@ -275,7 +287,7 @@ export class TokenDef extends Rule<Token> {
   as(str: string): Rule<string>
   as(str: string | RegExp): Rule<string | RegExpExecArray> {
     return this.map(res => {
-      var match = res.match[0]
+      var match = res.str[0]
       if (typeof str === 'string') {
         return match === str ? match : NoMatch
       }
@@ -307,7 +319,7 @@ export function Str(...strs: string[]): Rule<string> {
     while ((tk = input[pos], tk?.def._skip)) { pos ++ }
     if (!tk) return NoMatch
 
-    var matched = tk.match[0]
+    var matched = tk.str
     for (var i = 0, l = strs.length; i < l; i++) {
       var str = strs[i]
       if (matched !== str) continue
@@ -351,21 +363,6 @@ export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...value
     }
     return Res(nb_rules === 1 ? res[0] : res, pos)
   })
-}
-
-
-export function Reg(reg: RegExp): Rule<RegExpExecArray> {
-  return new Rule(function RegexpRule(input, pos) {
-    // start by skipping until we get a non-skip token.
-    var tk: Token | undefined
-    while ((tk = input[pos], tk?.is_skip)) { pos++ }
-
-    var inp = tk?.match[0]
-    if (!inp) return NoMatch
-    var match = reg.exec(inp)
-    if (!match) return NoMatch
-    return Res(match, pos + 1)
-  }).name(`/${reg.source}/`)
 }
 
 
@@ -522,118 +519,123 @@ export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>, opts?: {trailing?:
 }
 
 
-export interface OpNodeBase {
-  level: number
+export interface TdopResult<T> {
+  value?: T
+  lbp?: number
+  nud?: (expression: (n: number) => T | NoMatch) => T | NoMatch
+  led?: (left: T, expression: (n: number) => T | NoMatch) => T | NoMatch
 }
 
-export interface OpBinary<T, Op> {
-  Op: Op
-  left: OpNode<T, Op>
-  right: OpNode<T, Op>
-}
-
-export interface OpUnary<T, Op> {
-  Op: Op
-  value: OpNode<T, Op>
-}
-
-export class TreeBuilder<T, Op> {
-  root: T | undefined
-
-  add(value: T, op: Op, level: number) {
-
-  }
-}
-
-export type OpNode<T, Op> = OpBinary<T, Op> | OpUnary<T, Op> | T
-function addOp<T, Op>(node: OpNode<T, Op> | undefined, value: T): OpNode<T, Op> {
-  if (node == null) return value
+export namespace TdopResult {
+  export function create<T>(v: TdopResult<T>): TdopResult<T> { return v }
 }
 
 
+export class TDopBuilder<T> extends Rule<T> {
+  rules: any[] = []
+  _nuds: Rule<any>[] = []
+  nuds!: Rule<TdopResult<T>>
+  _leds: Rule<any>[] = []
+  leds!: Rule<TdopResult<T>>
 
-export function Operator<T, Operators extends Rule<any>[]>(operand: Rule<T>, ...op: Operators): Rule<OpNode<T, {[K in keyof Operators]: Result<Operators[K]>}[number]>> {
-  // var left_assoc = opts?.associativity !== 'right'
+  constructor(terminal: Rule<T>) {
+    super((input, pos) => {
+      const top = this.nuds ?? (this.nuds = Either(...[...this._nuds, terminal.map(r => TdopResult.create<T>({value: r}))]))
+      const bos = this.leds ?? (this.leds = Either(...this._leds))
 
-  var unary_left: Rule<any>[] = [] //op.filter(op => !!(op as any)[sym_unary_left])
-  var binary: Rule<any>[] = []
-  var right_assoc: boolean[] = []
-  var unary_right: Rule<any>[] = []
-  for (var _o of op as any[]) {
-    if (_o[sym_unary_left]) {
-      unary_left.push(_o)
-    } else if (_o[sym_unary_right]) {
-      unary_right.push(_o)
-    } else {
-      binary.push(_o)
-      right_assoc.push(!!_o[sym_assoc_right])
-    }
-  }
+      function expression(rbp: number): T | NoMatch {
+        var leftp = top.parse(input, pos)
+        if (leftp === NoMatch) return NoMatch
+        var leftm = leftp.res
+        pos = leftp.pos
+        var left: T | NoMatch
+        if (leftm.value) {
+          left = leftm.value
+        } else {
+          if (!leftm.nud) return NoMatch
+          left = leftm.nud((n: number) => expression(n))
+        }
+        if (left === NoMatch) return NoMatch
 
-  return new Rule(function BinOp(input, pos): ParseResult<OpNode<T, any>> | NoMatch {
-    var res: OpNode<T, any> | undefined
-    var current_op_rule: any
-    var current_op: any
-    var current_op_level!: number
+        var op = bos.parse(input, pos)
+        if (op === NoMatch) return left
+        var opm = op.res
+        pos = op.pos
 
-    function expression(pos: number, rbp: number) {
-      // current token
-      // fetch next token
-      // nud() on current token
-      while (rbp < tk.lbp) {
+        while (rbp < opm.lbp!) {
+          // if (!opm.led) return NoMatch
+          var opres = opm.led!(opm.value!, expression)
+          if (opres === NoMatch) return left
+          left = opres
+          var op = bos.parse(input, pos)
+          if (op === NoMatch) return left
+          opm = op.res
+          pos = op.pos
+        }
 
-        // do stuff and call led()
+        return left
       }
-    }
 
-    operand: while (true) {
-      // First try to parse the
+      var res = expression(0)
+      if (res === NoMatch) return NoMatch
+      return Res(res, pos)
+    })
+  }
 
-      var roperand = operand.parse(input, pos)
-      // if the operand doesn't match, it is an error, because we either did not match anything,
-      // or we previously matched an operator and it has no rhs.
-      if (roperand === NoMatch) { return NoMatch }
-      pos = roperand.pos
-      var current_operand = roperand.res
-
-      // Before trying the binary operators, try all the right suffix
-
-      // FIXME : Add the operand
-
-      // Find the first operator we have
-      // the lower the number, the higher the precedence.
-      for (var i = 0, l = binary.length; i < l; i++) {
-        var top = op[i]
-        var rop = top.parse(input, pos)
-        if (rop === NoMatch) continue
-        current_op = rop.res
-        current_op_rule = top
-        current_op_level = i
-        pos = rop.pos
-        // Continue to the operand
-        continue operand
+  prefix<R>(power: number, rule: Rule<R>, fn: (op: R, right: T) => T | NoMatch) {
+    // var power = this.current_build_level
+    var nr = rule.map(r => TdopResult.create<T>({
+      nud: expr => {
+        var e = expr(power)
+        if (e === NoMatch) return e
+        return fn(r, e)
       }
-      break
-    }
+    }))
+    this._nuds.push(nr)
+    return this
+  }
 
-    return Res(res!, pos)
-  })
+  suffix<R>(power: number, rule: Rule<R>, fn: (op: R, left: T) => T | NoMatch) {
+    // var power = this.current_build_level
+    var lr = rule.map(r => TdopResult.create<T>({
+      lbp: power,
+      led(left, expr) {
+        return fn(r, left)
+      }
+    }))
+    this._leds.push(lr)
+    return this
+  }
+
+  binary<R>(power: number, rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+    var lr = rule.map(r => TdopResult.create<T>({
+      lbp: power,
+      led(left, expr) {
+        var right = expr(power)
+        if (right === NoMatch) return NoMatch
+        return fn(r, left, right)
+      }
+    }))
+    this._leds.push(lr)
+    return this
+  }
+
+  binaryRight<R>(power: number, rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+    var lr = rule.map(r => TdopResult.create<T>({
+      lbp: power,
+      led(left, expr) {
+        var right = expr(power - 0.5)
+        if (right === NoMatch) return NoMatch
+        return fn(r, left, right)
+      }
+    }))
+    this._leds.push(lr)
+    return this
+  }
+
 }
 
-const sym_unary_left = Symbol('unary-left')
-Operator.UnaryLeft = function <T>(r: Rule<T>): Rule<T> {
-  (r as any)[sym_unary_left] = true
-  return r
-}
 
-const sym_unary_right = Symbol('unary-right')
-Operator.UnaryRight = function <T>(r: Rule<T>): Rule<T> {
-  (r as any)[sym_unary_right] = true
-  return r
-}
-
-const sym_assoc_right = Symbol('right-assoc')
-Operator.AssocRight = function <T>(r: Rule<T>): Rule<T> {
-  (r as any)[sym_assoc_right] = true
-  return r
+export function Operator<T>(terminal: Rule<T>) {
+  return new TDopBuilder(terminal)
 }

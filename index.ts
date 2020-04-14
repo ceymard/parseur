@@ -594,9 +594,10 @@ export class TDopBuilder<T> extends Rule<T> {
         var op = bos.parse(input, pos)
         if (op === NoMatch) return left
         var opm = op.res
-        pos = op.pos
 
         while (rbp < opm.lbp!) {
+          // only advance if the operator matched the current level
+          pos = op.pos
           // if (!opm.led) return NoMatch
           var opres = opm.led!(left, expression)
           if (opres === NoMatch) return left
@@ -604,7 +605,6 @@ export class TDopBuilder<T> extends Rule<T> {
           var op = bos.parse(input, pos)
           if (op === NoMatch) return left
           opm = op.res
-          pos = op.pos
         }
 
         return left

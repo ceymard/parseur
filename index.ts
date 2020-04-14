@@ -577,6 +577,8 @@ export class TDopBuilder<T> extends Rule<T> {
       const top = this.nuds ?? (this.nuds = Either(...[...this._nuds, terminal.map(r => TdopResult.create<T>({value: r}))]))
       const bos = this.leds ?? (this.leds = Either(...this._leds))
 
+      var cached_op: TdopResult<T> | undefined
+
       function expression(rbp: number): T | NoMatch {
         var leftp = top.parse(input, pos)
         if (leftp === NoMatch) return NoMatch
@@ -594,18 +596,36 @@ export class TDopBuilder<T> extends Rule<T> {
         var op = bos.parse(input, pos)
         if (op === NoMatch) return left
         var opm = op.res
+        cached_op = opm
+        pos = op.pos
 
         while (rbp < opm.lbp!) {
           // only advance if the operator matched the current level
-          pos = op.pos
+          // pos = op.pos
           // if (!opm.led) return NoMatch
           var opres = opm.led!(left, expression)
           if (opres === NoMatch) return left
+          // FIXME there should probably be a way of caching the operator that was matched
+          // to recheck it here and avoid reparsing it.
           left = opres
-          var op = bos.parse(input, pos)
-          if (op === NoMatch) return left
-          opm = op.res
+
+          // first try to get the cached value.
+
+          if (cached_op != undefined) {
+            opm = cached_op
+            cached_op = undefined
+          } else {
+            var op = bos.parse(input, pos)
+            if (op === NoMatch) return left
+            opm = op.res
+            pos = op.pos
+            cached_op = opm
+          }
         }
+
+        // If we get here, it means we didn't return abruptly because there was no match,
+        // so we can keep the operator result for another expression evaluation ?
+        // cached_op = op.res
 
         return left
       }

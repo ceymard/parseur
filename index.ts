@@ -164,6 +164,34 @@ export class Tokenizer {
     }
     return res
   }
+
+  parse(input: string, rule: Rule<any>) {
+    var tokens = this.tokenize(input, { enable_line_counts: true, forget_skips: true })
+    Res.max_res = null
+    // console.log('??')
+    if (tokens) {
+      var res = rule.parse(tokens, 0)
+
+      var failed = true
+      if (res !== NoMatch) {
+        var pos = res.pos
+        var _tk: Token | undefined
+        while ((_tk = tokens[pos], _tk && _tk.is_skip)) { pos++ }
+        failed = !!_tk
+      }
+
+      if (res === NoMatch || failed) {
+        // console.log('Match failed')
+        return { status: 'nok', max_res: Res.max_res, tokens }
+        // console.log(Res.max_res)
+      } else {
+        return { status: 'ok', result: res.res }
+        // console.log(inspect(res.res, {depth: null}))
+      }
+    }
+    return { status: 'nok' }
+  }
+
 }
 
 
@@ -467,6 +495,12 @@ export const Any = new Rule(function AnyRule(input, pos) {
 }).name('Any')
 
 
+export const Eof = new Rule(function EOF(input, pos) {
+  if (pos >= input.length) return Res('!EOF!', pos)
+  return NoMatch
+})
+
+
 export function Forward<T>(rulefn: () => Rule<T>) {
   var res = new Rule(function ForwardRule(input, pos) {
     var rule = rulefn()
@@ -549,7 +583,7 @@ export class TDopBuilder<T> extends Rule<T> {
         var leftm = leftp.res
         pos = leftp.pos
         var left: T | NoMatch
-        if (leftm.value) {
+        if (leftm.value != undefined) {
           left = leftm.value
         } else {
           if (!leftm.nud) return NoMatch
@@ -564,7 +598,7 @@ export class TDopBuilder<T> extends Rule<T> {
 
         while (rbp < opm.lbp!) {
           // if (!opm.led) return NoMatch
-          var opres = opm.led!(opm.value!, expression)
+          var opres = opm.led!(left, expression)
           if (opres === NoMatch) return left
           left = opres
           var op = bos.parse(input, pos)

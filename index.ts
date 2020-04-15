@@ -666,7 +666,7 @@ export namespace TdopResult {
 }
 
 
-export class TDopBuilder<T> extends Rule<T> {
+export class TdopOperatorRule<T> extends Rule<T> {
   rules: any[] = []
   _nuds: Rule<any>[] = []
   nuds!: Rule<TdopResult<T>>
@@ -793,6 +793,48 @@ export class TDopBuilder<T> extends Rule<T> {
 }
 
 
+export class RecOperatorRule<T> extends Rule<T> {
+  build_expr: ((upper_level: Rule<T>) => Rule<T>)[] = []
+  public constructor(public terminal: Rule<T>) { super() }
+
+  _init() {
+    this.terminal.init()
+    var expr = this.build_expr.reduce((acc, item) => {
+      var rule = item(acc)
+      rule.init()
+      return rule
+    }, this.terminal)
+    this.start_tokens = expr.start_tokens
+    this.doParse = expr.doParse.bind(expr)
+  }
+
+  Binary<R>(op: Rule<R>, fn: (op: R, left: T, right: T) => T) {
+    this.build_expr.push(upper => Seq(
+      { upper },
+      { rest: Repeat(Seq({ op, upper })) }
+    ).map(r => r.rest.reduce((acc, item) => fn(item.op, acc, item.upper), r.upper) ))
+    return this
+  }
+
+  BinaryRight<R>(op: Rule<R>, fn: (op: R, left: T, right: T) => T) {
+    this.build_expr.push(upper => Seq(
+      { rest: Repeat(Seq({ upper, op })) },
+      { upper },
+    ).map(r => r.rest.reduceRight((acc, item) => fn(item.op, item.upper, acc), r.upper) ))
+    return this
+  }
+
+  Prefix<R>(op: Rule<R>, fn: (op: R, right: T) => T) {
+    this.build_expr.push(upper => Seq({ op: Opt(op) }, { upper }).map(r => r.op != undefined ? fn(r.op, r.upper) : r.upper))
+    return this
+  }
+
+  Suffix<R>(op: Rule<R>, fn: (op: R, left: T) => T) {
+    this.build_expr.push(upper => Seq({ upper }, { op: Opt(op) }).map(r => r.op != undefined ? fn(r.op, r.upper) : r.upper))
+    return this
+  }
+}
+
 /////////////////////////////
 
 export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...seq: T): Rule<UnionToIntersection<
@@ -874,6 +916,11 @@ export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>, opts?: {trailing?:
 }
 
 
-export function Operator<T>(terminal: Rule<T>) {
-  return new TDopBuilder(terminal)
+export function TdopOperator<T>(terminal: Rule<T>) {
+  return new TdopOperatorRule(terminal)
+}
+
+
+export function RecOperator<T>(terminal: Rule<T>) {
+  return new RecOperatorRule(terminal)
 }

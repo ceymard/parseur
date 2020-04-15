@@ -1,4 +1,4 @@
-import { Tokenizer, Either, Forward, Operator, Rule, Seq, Repeat } from '../index'
+import { Tokenizer, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator } from '../index'
 
 const tk = new Tokenizer()
 const PLUS = tk.token('+')
@@ -16,13 +16,14 @@ const S = tk.S.bind(tk)
 export namespace CalcOp {
 
   const Terminal: Rule<number> = Either(
+    NUM.map(n => parseFloat(n.str)),
     S`( ${Forward(() => Expression)} )`,
-    NUM.map(n => parseFloat(n.str))
   )
 
-  export const Expression: Rule<number> = Operator(Terminal)
+  export const Expression: Rule<number> = TdopOperator(Terminal)
     .binary(10, PLUS, (_, left, right) => left + right)
     .binary(10, MINUS, (_, left, right) => left - right)
+    .prefix(10, MINUS, (_, left) => -left)
     .binary(20, MUL, (_, left, right) => left * right)
     .binary(20, DIV, (_, left, right) => left / right)
     .binary(30, POW, (_, left, right) => Math.pow(left, right))
@@ -31,22 +32,15 @@ export namespace CalcOp {
 export namespace CalcRec {
 
   const Terminal = Either(
+    NUM.map(n => parseFloat(n.str)),
     S`( ${Forward(() => Expression)} )`,
-    S`- ${NUM}`.map(n => -parseFloat(n.str)),
-    NUM.map(n => parseFloat(n.str))
   )
 
-  export const PwrExpr =
-    S`${Terminal} ${Repeat(S`${S`**`} ${Terminal}`)}`
-    .map(([r, rest]) => rest.reduce((acc, item) => Math.pow(acc, item[1]), r))
-
-  export const MulExpr: Rule<number> =
-    S`${PwrExpr} ${Repeat(S`${Either(S`*`, S`/`)} ${PwrExpr}`)}`
-    .map(([r, rest]) => rest.reduce((acc, item) => item[0] === '*' ? acc * item[1] : acc / item[1], r))
-
-  export const Expression: Rule<number> =
-    S`${MulExpr} ${Repeat(S`${Either(S`+`, S`-`)} ${MulExpr}`)}`
-    .map(([r, rest]) => rest.reduce((acc, item) => item[0] === '+' ? acc + item[1] : acc - item[1], r))
+  export const Expression: Rule<number> = RecOperator(Terminal)
+    .Prefix(S`-`, (_, right) => -right)
+    .Binary(S`**`, (_, left, right) => Math.pow(left, right))
+    .Binary(Either(S`*`, S`/`), (op, left, right) => op === '*' ? left * right : left / right)
+    .Binary(Either(S`+`, S`-`), (op, left, right) => op === '+' ? left + right : left - right)
 }
 
 function parse(r: Rule<number>, input: string) {
@@ -56,15 +50,14 @@ function parse(r: Rule<number>, input: string) {
   return r.parse(tokens, 0)
 }
 
-
 console.log(parse(CalcOp.Expression, '2 + 4'))
 console.log(parse(CalcOp.Expression, '2 + 5 * 2 - 2'))
-console.log(parse(CalcOp.Expression, '2 + 5 * (2 - 2)'))
+console.log(parse(CalcOp.Expression, '- 2 + 5 * (2 - 2)'))
 console.log(parse(CalcOp.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
 console.log('<-->')
 console.log(parse(CalcRec.Expression, '2 + 4'))
 console.log(parse(CalcRec.Expression, '2 + 5 * 2 - 2'))
-console.log(parse(CalcRec.Expression, '2 + 5 * (2 - 2)'))
+console.log(parse(CalcRec.Expression, '- 2 + 5 * (2 - 2)'))
 console.log(parse(CalcRec.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
 
 // process.exit(0)

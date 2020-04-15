@@ -1,36 +1,33 @@
-import { Tokenizer, Seq, Either, Rule, Forward, SeparatedBy } from '../index'
+import { Parseur, Seq, Either, Rule, Forward, SeparatedBy } from '../index'
 
-// setDebug()
-var tk = new Tokenizer()
-
-const T = {
+const TK = new class JsonTokenizer extends Parseur {
   // End with the regexps
-  STR:   tk.token(/"(?:\\"|[^"])*"/, '"'), //.map(r => r.match[0].slice(1, -1)),
-  NUM:   tk.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789-'), //.map(r => parseFloat(r.match[0])),
-  WHITESPACE: tk.token(/(\/\/[^\n]*|[\s\n\t\r])+/, ' \t\n\r').skip()
+  STR =   this.token(/"(?:\\"|[^"])*"/, '"') //.map(r => r.match[0].slice(1, -1)),
+  NUM =   this.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789-') //.map(r => parseFloat(r.match[0])),
+  WHITESPACE = this.token(/(\/\/[^\n]*|[\s\n\t\r])+/, ' \t\n\r').skip()
 }
 
-const S = tk.S.bind(tk)
+const T = TK.S
 
 const Json: Rule<any> = Either(
-  T.STR.map(r => r.str.slice(1, -1)),
-  T.NUM.map(r => parseFloat(r.str)),
-  S`true`.map(() => true),
-  S`false`.map(() => false),
-  S`null`.map(() => null),
+  TK.STR.map(r => r.str.slice(1, -1)),
+  TK.NUM.map(r => parseFloat(r.str)),
+  T`true`.map(() => true),
+  T`false`.map(() => false),
+  T`null`.map(() => null),
   Forward(() => Array),
   Forward(() => Obj)
 )
 
-const Array = S`[ ${SeparatedBy(S`,`, Json)} ]`
+const Array = T`[ ${SeparatedBy(T`,`, Json)} ]`
 
 const Prop = Seq(
-  { key:     T.STR.map(m => m.str.slice(1, -1)) },
-           S`:`,
+  { key:     TK.STR.map(m => m.str.slice(1, -1)) },
+           T`:`,
   { value:   Json }
 )
 
-const Obj = S`{ ${SeparatedBy(S`,`, Prop)} }`
+const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
 .map(function ObjRes(r) {
   var res = {} as any
   for (var i = 0, l = r.length; i < l; i++) {

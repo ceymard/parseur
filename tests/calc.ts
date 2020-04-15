@@ -1,6 +1,6 @@
-import { Tokenizer, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator, Eof } from '../index'
+import { Parseur, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator, Eof } from '../index'
 
-const tk = new Tokenizer()
+const tk = new Parseur()
 const PLUS = tk.token('+')
 const MINUS = tk.token('-')
 const POW = tk.token('**')

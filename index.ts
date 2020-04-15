@@ -35,7 +35,7 @@ export class Token {
 // The tokenizer should be able to operate on a stream to create a token stream
 // Also, the rules should be able to use next() or anext() depending on whether they
 // want to parse synchronously or asynchronously
-export class Tokenizer {
+export class Parseur {
 
   noaccel_token_defs = [] as TokenDef[]
   token_defs: TokenDef[] = []
@@ -43,6 +43,10 @@ export class Tokenizer {
 
   // Accelerator for characters
   token_table: (TokenDef[] | null)[] = new Array(256).fill(null)
+
+  constructor() {
+    this.S = this.S.bind(this)
+  }
 
   nameRules() {
     for (var key of Object.getOwnPropertyNames(this)) {
@@ -410,7 +414,7 @@ export class TokenDef extends Rule<Token> {
   }
 
   derive_map?: Map<string, TokenDef>
-  derive(derived: string, tokenizer: Tokenizer): TokenDef {
+  derive(derived: string, tokenizer: Parseur): TokenDef {
     if (!this.derive_map) this.derive_map = new Map()
     var tkd = new TokenDef(derived, this._skip)
     this.derive_map.set(derived, tkd)

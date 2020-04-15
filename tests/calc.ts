@@ -1,4 +1,4 @@
-import { Tokenizer, Either, S, Forward, Operator, Rule, Str, Token, Repeat } from '../index'
+import { Tokenizer, Either, Forward, Operator, Rule, Seq, Repeat } from '../index'
 
 const tk = new Tokenizer()
 const PLUS = tk.token('+')
@@ -9,21 +9,23 @@ const DIV = tk.token('/')
 const LPAREN = tk.token('(')
 const RPAREN = tk.token(')')
 const NUM =   tk.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789') //.map(r => parseFloat(r.match[0])),
-const WS = tk.token(/[\s\n]+/).skip()
+// const WS =
+tk.token(/[\s\n]+/).skip()
+const S = tk.S.bind(tk)
 
 export namespace CalcOp {
 
-  const Terminal = Either(
-    S`( ${Forward(() => Expression)} )`,
+  const Terminal: Rule<number> = Either(
+    Seq(LPAREN, { exp: Forward(() => Expression) }, RPAREN).map(r => r.exp),
     NUM.map(n => parseFloat(n.str))
   )
 
   export const Expression: Rule<number> = Operator(Terminal)
-    .binary(10, Str('+'), (_, left, right) => left + right)
-    .binary(10, Str('-'), (_, left, right) => left - right)
-    .binary(20, Str('*'), (_, left, right) => left * right)
-    .binary(20, Str('/'), (_, left, right) => left / right)
-    .binary(30, Str('**'), (_, left, right) => Math.pow(left, right))
+    .binary(10, PLUS, (_, left, right) => left + right)
+    .binary(10, MINUS, (_, left, right) => left - right)
+    .binary(20, MUL, (_, left, right) => left * right)
+    .binary(20, DIV, (_, left, right) => left / right)
+    .binary(30, POW, (_, left, right) => Math.pow(left, right))
 }
 
 export namespace CalcRec {
@@ -35,15 +37,15 @@ export namespace CalcRec {
   )
 
   export const PwrExpr =
-    S`${Terminal} ${Repeat(S`${Str('**')} ${Terminal}`)}`
+    S`${Terminal} ${Repeat(S`${S`**`} ${Terminal}`)}`
     .map(([r, rest]) => rest.reduce((acc, item) => Math.pow(acc, item[1]), r))
 
   export const MulExpr: Rule<number> =
-    S`${PwrExpr} ${Repeat(S`${Str('*', '/')} ${PwrExpr}`)}`
+    S`${PwrExpr} ${Repeat(S`${Either(S`*`, S`/`)} ${PwrExpr}`)}`
     .map(([r, rest]) => rest.reduce((acc, item) => item[0] === '*' ? acc * item[1] : acc / item[1], r))
 
   export const Expression: Rule<number> =
-    S`${MulExpr} ${Repeat(S`${Str('+', '-')} ${MulExpr}`)}`
+    S`${MulExpr} ${Repeat(S`${Either(S`+`, S`-`)} ${MulExpr}`)}`
     .map(([r, rest]) => rest.reduce((acc, item) => item[0] === '+' ? acc + item[1] : acc - item[1], r))
 }
 

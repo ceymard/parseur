@@ -31,13 +31,6 @@ export class Token {
   ) { }
 }
 
-// A rule always execs on the first token to be checked
-
-export type TokenDefRet = {
-  def: TokenDef,
-  skip: boolean
-}
-
 
 // The tokenizer should be able to operate on a stream to create a token stream
 // Also, the rules should be able to use next() or anext() depending on whether they
@@ -45,6 +38,7 @@ export type TokenDefRet = {
 export class Tokenizer {
 
   token_defs = [] as TokenDef[]
+  str_tokens = new Map<string, TokenDef>()
 
   // Accelerator for characters
   token_table: (TokenDef[] | null)[] = new Array(256).fill(null)
@@ -53,7 +47,7 @@ export class Tokenizer {
     for (var key of Object.getOwnPropertyNames(this)) {
       var p = (this as any)[key]
       if (p instanceof Rule) {
-        p.name(key)
+        p.setName(key)
       }
     }
   }
@@ -62,7 +56,7 @@ export class Tokenizer {
     // All the regexp we handle are sticky ones.
 
     var reg = typeof def === 'string' ? def : new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
-    var tdef = new TokenDef(this, reg, false)
+    var tdef = new TokenDef(reg, false)
     var added: boolean = false
 
     const add_to_ttable = (code: number) => {
@@ -80,6 +74,7 @@ export class Tokenizer {
     if (typeof def === 'string') {
       add_to_ttable(def.charCodeAt(0))
       var ccode = def.charCodeAt(0)
+      this.str_tokens.set(def, tdef)
     }
 
     if (!added) this.token_defs.push(tdef)
@@ -103,6 +98,7 @@ export class Tokenizer {
       if (pos >= il) break
 
       var accel = tktbl[input[pos].charCodeAt(0)]
+      // console.log(input[pos], accel, input[pos].charCodeAt(0))
       if (accel) {
         l = accel.length
         tokendefs = accel
@@ -140,6 +136,10 @@ export class Tokenizer {
           }
         }
         if (!forget_skips || !tkd._skip) {
+          if (tkd.derive_map) {
+            var tkd2 = tkd.derive_map.get(match)
+            if (tkd2) tkd = tkd2
+          }
           res.push(new Token(
             tkd,
             match,
@@ -192,6 +192,63 @@ export class Tokenizer {
     return { status: 'nok' }
   }
 
+  S(tpl: TemplateStringsArray): Rule<string>
+  S<T>(tpl: TemplateStringsArray, rule: Rule<T>): Rule<T>
+  S<R extends Rule<any>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<{[K in keyof R]: Result<R[K]>}>
+  S<R extends Rule<any>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any> {
+    if (tpl.length === 1 && rules.length === 0 && !tpl[0].match(/[\s\n]/)) {
+      const get = this.str_tokens.get(tpl[0])
+      if (get == undefined) throw new Error(`No token defined for '${tpl[0]}'`)
+      return get
+    }
+
+    var seq: Rule<any>[] = []
+    var in_res: boolean[] = []
+    var single_res = rules.length === 1
+
+    for (var i = 0, l = tpl.length; i < l; i++) {
+      var strs = tpl[i].split(/\s+/g).filter(t => t !== '')
+      for (var s of strs) {
+        var srule = this.str_tokens.get(s)
+        if (!srule) throw new Error(`No definition for token '${s}'`)
+        seq.push(srule)
+        in_res.push(false)
+      }
+      var r = rules[i]
+      if (r) {
+        seq.push(r)
+        in_res.push(true)
+      }
+    }
+
+    class SRule extends Rule<any> {
+      init() {
+        var keep_adding = true
+        for (var s of seq) {
+          s.init()
+          if (keep_adding) this.addTokens(s.start_tokens)
+          if (!(s instanceof OptRule)) keep_adding = false
+        }
+      }
+
+      doParse(input: Token[], pos: number) {
+        var res: any[] = []
+
+        for (var i = 0, l = seq.length; i < l; i++) {
+          var match = seq[i].parse(input, pos)
+          if (match === NoMatch) return NoMatch
+          if (in_res[i]) res.push(match.res)
+          pos = match.pos
+        }
+
+        if (single_res) return Res(res[0], pos)
+        return Res(res, pos)
+      }
+    }
+
+    return new SRule()
+  }
+
 }
 
 
@@ -231,17 +288,10 @@ export namespace Res {
 export type MapFn<T, U> = (res: T, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U>
 
 
-export function map<T, U>(rule: Rule<T>, fn: MapFn<T, U>) {
-  return (input: Token[], pos: number) => {
-    var res = rule.parse(input, pos)
-    if (res === NoMatch) return NoMatch
-    var res2 = fn(res.res, input, res.pos, pos)
-    if (res2 === NoMatch) return NoMatch
-    if (res2 instanceof ParseResult) return res2
-    if (res2 instanceof Rule) return res2.parse(input, res.pos)
-    return Res(res2, res.pos)
-  }
-}
+/**
+ *
+ */
+export type Result<T> = T extends Rule<infer U> ? U : never
 
 
 /**
@@ -249,26 +299,39 @@ export function map<T, U>(rule: Rule<T>, fn: MapFn<T, U>) {
  */
 export class Rule<T> {
 
-  constructor(public parse: (this: Rule<any>, input: Token[], pos: number) => NoMatch | ParseResult<T>) {
-    if (DEBUG) {
-      this.parse = (input: Token[], pos: number) => {
-        // if (!input[pos]) return NoMatch
-        DEBUG_STACK.push(this.Name)
-        var res = parse.call(this, input, pos)
-        // console.log(input[pos].str, ' - ', DEBUG_STACK.join('::'), res !== NoMatch)
-        DEBUG_STACK.pop()
-        return res
+  start_tokens = new Set<TokenDef>()
+
+  addTokens(tks: Set<TokenDef>) {
+    for (var t of tks) this.start_tokens.add(t)
+  }
+
+  init(): void | boolean {
+    // use it to detect first tokens
+  }
+
+  _inited = false
+  parse(input: Token[], pos: number): NoMatch | ParseResult<T> {
+    if (!this._inited) {
+      this._inited = true;
+      if (!this.init()) {
+        this.parse = this.doParse
       }
     }
+    return this.parse(input, pos)
+  }
+
+  doParse(input: Token[], pos: number): NoMatch | ParseResult<T> {
+    throw new Error('Rule is not defined...')
   }
 
   _name = ''
   _build_name: null | (() => string) = null
 
   map<U>(fn: MapFn<T, U>): Rule<U> {
-    var r = new Rule(map(this, fn))
-    r._name = this.Name
-    return r
+    return new MapRule(this, fn)
+    // var r = new Rule(map(this, fn))
+    // r._name = this.Name
+    // return r
   }
 
   tap(fn: (res: T, input: Token[], pos: number, start: number) => any) {
@@ -278,7 +341,7 @@ export class Rule<T> {
     })
   }
 
-  name(n: string): this {
+  setName(n: string): this {
     this._name = n
     return this
   }
@@ -295,20 +358,52 @@ export class Rule<T> {
 }
 
 
+export class MapRule<T, U> extends Rule<U> {
+  constructor(public rule: Rule<T>, public fn: MapFn<T, U>) { super() }
+
+  init() {
+    this.rule.init()
+    this.start_tokens = this.rule.start_tokens
+  }
+
+  doParse(input: Token[], pos: number) {
+    var res = this.rule.parse(input, pos)
+    if (res === NoMatch) return NoMatch
+    var res2 = this.fn(res.res, input, res.pos, pos)
+    if (res2 === NoMatch) return NoMatch
+    if (res2 instanceof ParseResult) return res2
+    if (res2 instanceof Rule) return res2.parse(input, res.pos)
+    return Res(res2, res.pos)
+  }
+}
+
+
 export class TokenDef extends Rule<Token> {
+  start_tokens = new Set<TokenDef>().add(this)
+
   constructor(
-    public tokenizer: Tokenizer,
     public _regex: RegExp | string,
     public _skip: boolean,
   ) {
-    super((input, pos) => {
-      var next: Token | undefined
-      while ((next = input[pos++])) {
-        if (next.def === this) return Res(next, pos)
-        if (!next.is_skip) return NoMatch
-      }
-      return NoMatch
-    })
+    super()
+  }
+
+  derive_map?: Map<string, TokenDef>
+  derive(derived: string, tokenizer: Tokenizer): TokenDef {
+    if (!this.derive_map) this.derive_map = new Map()
+    var tkd = new TokenDef(derived, this._skip)
+    this.derive_map.set(derived, tkd)
+    tokenizer.str_tokens.set(derived, tkd)
+    return tkd
+  }
+
+  doParse(input: Token[], pos: number) {
+    var next: Token | undefined
+    while ((next = input[pos++])) {
+      if (next.def === this) return Res(next, pos)
+      if (!next.is_skip) return NoMatch
+    }
+    return NoMatch
   }
 
   as(str: RegExp): Rule<RegExpExecArray>
@@ -332,205 +427,208 @@ export class TokenDef extends Rule<Token> {
 }
 
 
-/**
- *
- */
-export type Result<T> = T extends Rule<infer U> ? U : never
+export class OptRule<T> extends Rule<T | undefined> {
 
+  constructor(public rule: Rule<T>) { super() }
 
+  init() {
+    this.rule.init()
+    this.start_tokens = this.rule.start_tokens
+  }
 
-export function Str(...strs: string[]): Rule<string> {
-  if (!strs[0]) throw new Error('No patterns')
-  return new Rule(function StrRule(input, pos) {
-    // start by skipping until we get a non-skip token.
-    var tk: Token | undefined
-    while ((tk = input[pos], tk?.def._skip)) { pos ++ }
-    if (!tk) return NoMatch
+  doParse(input: Token[], pos: number) {
+    var res = this.rule.parse(input, pos)
+    if (res === NoMatch) return Res(undefined, pos)
+    return res
+  }
 
-    var matched = tk.str
-    for (var i = 0, l = strs.length; i < l; i++) {
-      var str = strs[i]
-      if (matched !== str) continue
-      return Res(str, pos + 1)
-    }
-    return NoMatch
-  }).name(`"${strs.join(', ')}"`)
 }
 
-export function S(tpl: TemplateStringsArray): Rule<string>
-export function S<T>(tpl: TemplateStringsArray, rule: Rule<T>): Rule<T>
-export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...values: Rules): Rule<{[K in keyof Rules]: Result<Rules[K]>}>
-export function S<Rules extends Rule<any>[]>(tpl: TemplateStringsArray, ...values: Rules): Rule<any> {
-  if (tpl.length === 1 && !tpl[0].match(/[\s\n]/)) return Str(tpl[0])
 
-  var rules: Rule<any>[] = []
-  var add_to_result: boolean[] = []
-  var nb_rules = 0
-  for (var i = 0, l = tpl.length; i < l; i++) {
-    for (var all = tpl[i].split(/[\s\n]+/g), is = 0, il = all.length; is < il; is++) {
-      var str = all[is]
-      if (!str?.trim()) continue
-      rules.push(Str(str))
-      add_to_result.push(false)
-    }
-    if (values[i] != null) {
-      rules.push(values[i])
-      add_to_result.push(true)
-      nb_rules++
+export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rules]: Result<Rules[K]>}[number]> {
+
+  constructor(public rules: Rules) { super() }
+
+  rulemap = new Map<TokenDef, Rule<any>[]>()
+  can_optimize = true
+  can_skip = true
+
+  init() {
+    for (var r of this.rules) {
+      // FIXME : also create a map for the rules.
+      r.init()
+      for (var tk of r.start_tokens) {
+        if (tk === Any) this.can_optimize = false
+        if (tk._skip) this.can_skip = false
+        this.start_tokens.add(tk);
+        (this.rulemap.get(tk) ?? this.rulemap.set(tk, []).get(tk)!).push(r)
+      }
+      this.addTokens(r.start_tokens)
     }
   }
 
-  return new Rule(function SRule(input, pos) {
-    var res: any[] = []
-    for (var i = 0, l = rules.length; i < l; i++) {
-      var rule = rules[i]
-      var pres = rule.parse(input, pos)
-      if (pres === NoMatch) return NoMatch
-      pos = pres.pos
-      if (add_to_result[i]) res.push(pres.res)
+  doParse(input: Token[], pos: number) {
+    var tk: Token | undefined
+
+    if (this.can_skip) {
+      while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
     }
-    return Res(nb_rules === 1 ? res[0] : res, pos)
-  })
+
+    if (this.can_optimize) {
+      while ((tk = input[pos])) {
+        var _rules = this.rulemap.get(tk.def)
+
+        if (_rules) {
+          for (var i = 0, l = _rules.length; i < l; i++) {
+            var rule = _rules[i]
+            var res = rule.parse(input, pos)
+            if (res !== NoMatch) return res
+          }
+        }
+
+        if (!tk.is_skip) return NoMatch
+        pos++
+      }
+    }
+
+    for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
+      var rule = rules[i]
+      var res = rule.parse(input, pos)
+      if (res !== NoMatch) return res
+    }
+    return NoMatch
+  }
+
 }
 
 
 export type UnionToIntersection<U> =
   (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
 
-export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...seq: T): Rule<UnionToIntersection<
-  {[K in keyof T]: [T[K]] extends [{[name: string]: Rule<any>}] ?
-    {[K2 in keyof T[K]]: Result<T[K][K2]>}
+export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> extends Rule<UnionToIntersection<
+  {[K in keyof Rules]: [Rules[K]] extends [{[name: string]: Rule<any>}] ?
+    {[K2 in keyof Rules[K]]: Result<Rules[K][K2]>}
     : never
   }[number]
-> & {}> {
-  var entries = [] as [null | string, Rule<any>][]
-  for (let r of seq) {
+  > & {}> {
+
+  real_rules: Rule<any>[] = []
+  names: (string | null)[] = []
+
+  constructor(public rules: Rules) {
+    super()
+    for (let r of rules) {
       // This is a named rule object.
-    if (r instanceof Rule)
-      entries.push([null, r])
-    else
-      entries.push(...Object.entries(r).map(([key, _r]) => [key, _r] as [string, Rule<any>]))
+      if (r instanceof Rule) {
+        this.real_rules.push(r)
+        this.names.push(null)
+      }
+      else {
+        for (var [k, rul] of Object.entries(r)) {
+          this.names.push(k)
+          this.real_rules.push(rul)
+        }
+      }
+    }
   }
 
-  return new Rule<any>(function SeqRule(input, pos) {
+  init() {
+    for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
+      var rule = rules[i]
+      if (rule instanceof Rule)
+        this.addTokens(rule.start_tokens)
+      else {
+        var r = Object.values(rule)[0]
+        this.addTokens(r.start_tokens)
+      }
+      if (!(rule instanceof OptRule)) break
+    }
+  }
+
+  doParse(input: Token[], pos: number) {
     var res = {} as any
-    for (var i = 0, l = entries.length; i < l; i++) {
-      var entry = entries[i]
-      var key = entry[0]
-      var match = entry[1].parse(input, pos)
+    var rules = this.real_rules
+    var names = this.names
+    for (var i = 0, l = rules.length; i < l; i++) {
+      var rule = rules[i]
+      var key = names[i]
+      var match = rule.parse(input, pos)
       // console.log(key, match, entries[i][1])
       if (match === NoMatch) return NoMatch
       pos = match.pos
       if (key !== null) res[key] = match.res
     }
     return Res(res, pos)
-  }).nameBuild(() => `Seq<${entries.map(e => e[1].Name).join(', ')}>`)
+  }
+
 }
 
 
-/**
- * FIXME: either should have a map to tokendefs of the first tokens of its child rules
- *    to avoid checking for useless match arms.
- *
- * Most rules should be able to be run once before calling their actual parse methods.
- */
-export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number]> {
-  return new Rule(function EitherRule(input, pos) {
-    for (var i = 0, l = rules.length; i < l; i++) {
-      var rule = rules[i]
-      var match = rule.parse(input, pos)
-      if (match !== NoMatch) {
-        return match
-      }
-    }
-    return NoMatch
-  }).nameBuild(() => `Either<${rules.map(r => r.Name).join(' | ')}>`)
-}
+export class RepeatRule<T> extends Rule<T[]> {
+  public constructor(public rule: Rule<T>, public min?: number, public max?: number) { super() }
 
+  init() {
+    this.rule.init()
+    this.start_tokens = this.rule.start_tokens
+  }
 
-/**
- *
- */
-export function Repeat<R extends Rule<any>>(rule: R, opts?: { min?: number, max?: number }): Rule<Result<R>[]> {
-  return new Rule(function RepeatRule(input, pos) {
-    var res: Result<R>[] = []
+  doParse(input: Token[], pos: number) {
+    var res: T[] = []
     var rres: ParseResult<any> | NoMatch
+    var rule = this.rule
+    var min = this.min
+    var max = this.max
     while ((rres = rule.parse(input, pos)) !== NoMatch) {
       res.push(rres.res)
       pos = rres.pos
+      if (max != null && res.length >= max) break
     }
+    if (min != null && res.length < min) return NoMatch
     return Res(res, pos)
-  }).nameBuild(() => `Repeat(${rule.Name})`)
-}
-
-
-/**
- *
- */
-export function Opt<T>(rule: Rule<T>): Rule<T | undefined> {
-  return new Rule(function OptRule(input, pos) {
-    var res = rule.parse(input, pos)
-    if (res === NoMatch) return Res(undefined, pos)
-    return res
-  }).nameBuild(() => `Opt(${rule.Name})`)
-}
-
-
-/**
- *
- */
-export function Not(rule: Rule<any>): Rule<null> {
-  return new Rule(function NotRule(input, pos) {
-    var res = rule.parse(input, pos)
-    if (res === NoMatch) return Res(null, pos)
-    return NoMatch
-  }).nameBuild(() => `Not(${rule.Name})`)
-}
-
-
-export const Any = new Rule(function AnyRule(input, pos) {
-  var tok: Token | undefined
-  while ((tok = input[pos], tok && tok.is_skip)) { pos++ }
-  return tok ? Res(tok, pos) : NoMatch
-}).name('Any')
-
-
-export const Eof = new Rule(function EOF(input, pos) {
-  if (pos >= input.length) return Res('!EOF!', pos)
-  return NoMatch
-})
-
-
-export function Forward<T>(rulefn: () => Rule<T>) {
-  var res = new Rule(function ForwardRule(input, pos) {
-    var rule = rulefn()
-    res.parse = rule.parse.bind(rule)
-    res.name(rule._name)
-    return rule.parse(input, pos)
-  })
-  return res
-}
-
-
-export function Parser<T>(rule: Rule<T>) {
-  return function (input: Token[]) {
-    Res.max_res = null
-    var res = rule.parse(input, 0)
-    if (res === NoMatch) return NoMatch
-    var pos = res.pos
-    var skip: Token | undefined
-    while ((skip = input[pos], skip && skip.is_skip)) { pos ++ }
-    if (pos !== input.length) return NoMatch
-    // I should check if there is a skip
-    return res
   }
 }
 
 
-export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>, opts?: {trailing?: boolean, leading?: boolean}) {
-  return new Rule(function SeparatedBy(input, pos) {
-    var res: T[] = []
-    if (opts?.leading) {
+export class NotRule extends Rule<null> {
+  constructor(public rule: Rule<any>) { super() }
+
+  doParse(input: Token[], pos: number) {
+    var res = this.rule.parse(input, pos)
+    if (res === NoMatch) return Res(null, pos)
+    return NoMatch
+  }
+}
+
+
+export class ForwardRule<T> extends Rule<T> {
+  constructor(public rulefn: () => Rule<T>) { super() }
+
+  init() {
+    var rule = this.rulefn()
+    rule.init()
+    this.start_tokens = rule.start_tokens
+    this.parse = rule.parse.bind(rule)
+    return true
+  }
+}
+
+
+export class SeparatedByRule<T> extends Rule<T[]> {
+  leading = false
+  trailing = false
+
+  constructor(public sep: Rule<any>, public rule: Rule<T>, opts?: { leading?: boolean, trailing?: boolean}) {
+    super()
+    this.leading = !!opts?.leading
+    this.trailing = !!opts?.trailing
+  }
+
+  doParse(input: Token[], pos: number) {
+    const sep = this.sep
+    const rule = this.rule
+    const res: T[] = []
+
+    if (this.leading) {
       var lres = sep.parse(input, pos)
       if (lres !== NoMatch) pos = lres.pos
     }
@@ -547,9 +645,9 @@ export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>, opts?: {trailing?:
       pos = sres.pos
     }
 
-    if (!at_sep && !opts?.trailing) return NoMatch
+    if (!at_sep && !this.trailing) return NoMatch
     return Res(res, pos)
-  }).nameBuild(() => `SeparatedBy(${sep.Name}, ${rule.Name})`)
+  }
 }
 
 
@@ -572,68 +670,80 @@ export class TDopBuilder<T> extends Rule<T> {
   _leds: Rule<any>[] = []
   leds!: Rule<TdopResult<T>>
 
-  constructor(terminal: Rule<T>) {
-    super((input, pos) => {
-      const top = this.nuds ?? (this.nuds = Either(...[...this._nuds, terminal.map(r => TdopResult.create<T>({value: r}))]))
-      const bos = this.leds ?? (this.leds = Either(...this._leds))
+  constructor(public terminal: Rule<T>) { super() }
 
-      var cached_op: TdopResult<T> | undefined
+  init() {
+    for (var r of this._nuds) {
+      r.init()
+      this.addTokens(r.start_tokens)
+    }
+    this.terminal.init()
+    this.addTokens(this.terminal.start_tokens)
+    for (var r of this._leds) {
+      r.init()
+    }
+  }
 
-      function expression(rbp: number): T | NoMatch {
-        var leftp = top.parse(input, pos)
-        if (leftp === NoMatch) return NoMatch
-        var leftm = leftp.res
-        pos = leftp.pos
-        var left: T | NoMatch
-        if (leftm.value != undefined) {
-          left = leftm.value
+  doParse(input: Token[], pos: number) {
+    const top = this.nuds ?? (this.nuds = Either(...[...this._nuds, this.terminal.map(r => TdopResult.create<T>({value: r}))]))
+    const bos = this.leds ?? (this.leds = Either(...this._leds))
+
+    var cached_op: TdopResult<T> | undefined
+
+    function expression(rbp: number): T | NoMatch {
+      var leftp = top.parse(input, pos)
+      if (leftp === NoMatch) return NoMatch
+      var leftm = leftp.res
+      pos = leftp.pos
+      var left: T | NoMatch
+      if (leftm.value != undefined) {
+        left = leftm.value
+      } else {
+        if (!leftm.nud) return NoMatch
+        left = leftm.nud((n: number) => expression(n))
+      }
+      if (left === NoMatch) return NoMatch
+
+      var op = bos.parse(input, pos)
+      if (op === NoMatch) return left
+      var opm = op.res
+      cached_op = opm
+      pos = op.pos
+
+      while (rbp < opm.lbp!) {
+        // only advance if the operator matched the current level
+        // pos = op.pos
+        // if (!opm.led) return NoMatch
+        var opres = opm.led!(left, expression)
+        if (opres === NoMatch) return left
+        // FIXME there should probably be a way of caching the operator that was matched
+        // to recheck it here and avoid reparsing it.
+        left = opres
+
+        // first try to get the cached value.
+
+        if (cached_op != undefined) {
+          opm = cached_op
+          cached_op = undefined
         } else {
-          if (!leftm.nud) return NoMatch
-          left = leftm.nud((n: number) => expression(n))
+          var op = bos.parse(input, pos)
+          if (op === NoMatch) return left
+          opm = op.res
+          pos = op.pos
+          cached_op = opm
         }
-        if (left === NoMatch) return NoMatch
-
-        var op = bos.parse(input, pos)
-        if (op === NoMatch) return left
-        var opm = op.res
-        cached_op = opm
-        pos = op.pos
-
-        while (rbp < opm.lbp!) {
-          // only advance if the operator matched the current level
-          // pos = op.pos
-          // if (!opm.led) return NoMatch
-          var opres = opm.led!(left, expression)
-          if (opres === NoMatch) return left
-          // FIXME there should probably be a way of caching the operator that was matched
-          // to recheck it here and avoid reparsing it.
-          left = opres
-
-          // first try to get the cached value.
-
-          if (cached_op != undefined) {
-            opm = cached_op
-            cached_op = undefined
-          } else {
-            var op = bos.parse(input, pos)
-            if (op === NoMatch) return left
-            opm = op.res
-            pos = op.pos
-            cached_op = opm
-          }
-        }
-
-        // If we get here, it means we didn't return abruptly because there was no match,
-        // so we can keep the operator result for another expression evaluation ?
-        // cached_op = op.res
-
-        return left
       }
 
-      var res = expression(0)
-      if (res === NoMatch) return NoMatch
-      return Res(res, pos)
-    })
+      // If we get here, it means we didn't return abruptly because there was no match,
+      // so we can keep the operator result for another expression evaluation ?
+      // cached_op = op.res
+
+      return left
+    }
+
+    var res = expression(0)
+    if (res === NoMatch) return NoMatch
+    return Res(res, pos)
   }
 
   prefix<R>(power: number, rule: Rule<R>, fn: (op: R, right: T) => T | NoMatch) {
@@ -687,6 +797,87 @@ export class TDopBuilder<T> extends Rule<T> {
     return this
   }
 
+}
+
+
+/////////////////////////////
+
+export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...seq: T): Rule<UnionToIntersection<
+  {[K in keyof T]: [T[K]] extends [{[name: string]: Rule<any>}] ?
+    {[K2 in keyof T[K]]: Result<T[K][K2]>}
+    : never
+  }[number]
+> & {}> {
+  return new SeqRule(seq)
+}
+
+
+/**
+ * FIXME: either should have a map to tokendefs of the first tokens of its child rules
+ *    to avoid checking for useless match arms.
+ *
+ * Most rules should be able to be run once before calling their actual parse methods.
+ */
+export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number]> {
+  return new EitherRule(rules)
+}
+
+
+/**
+ *
+ */
+export function Repeat<R extends Rule<any>>(rule: R, opts?: { min?: number, max?: number }): Rule<Result<R>[]> {
+  return new RepeatRule(rule, opts?.min, opts?.max)
+}
+
+
+/**
+ *
+ */
+export function Opt<T>(rule: Rule<T>): Rule<T | undefined> {
+  return new OptRule(rule)
+}
+
+
+/**
+ *
+ */
+export function Not(rule: Rule<any>): Rule<null> {
+  return new NotRule(rule)
+}
+
+
+export const Any = new class AnyRule extends TokenDef {
+
+  constructor() { super('!any!', false) }
+
+  init() {
+    this.start_tokens.add(this)
+  }
+
+  doParse(input: Token[], pos: number) {
+    var tok: Token | undefined
+    while ((tok = input[pos], tok && tok.is_skip)) { pos++ }
+    return tok ? Res(tok, pos) : NoMatch
+  }
+}
+
+
+export const Eof = new class EOF {
+  doParse(input: Token[], pos: number) {
+    if (pos >= input.length) return Res('!EOF!', pos)
+    return NoMatch
+  }
+}
+
+
+export function Forward<T>(rulefn: () => Rule<T>) {
+  return new ForwardRule(rulefn)
+}
+
+
+export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>, opts?: {trailing?: boolean, leading?: boolean}) {
+  return new SeparatedByRule(sep, rule, opts)
 }
 
 

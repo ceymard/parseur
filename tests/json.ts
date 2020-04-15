@@ -1,4 +1,4 @@
-import { Tokenizer, Seq, Either, Rule, Forward, S, SeparatedBy, TokenDef, Token, NoMatch, setDebug } from '../index'
+import { Tokenizer, Seq, Either, Rule, Forward, SeparatedBy } from '../index'
 
 // setDebug()
 var tk = new Tokenizer()
@@ -30,32 +30,17 @@ const T = {
   WHITESPACE: tk.token(/(\/\/[^\n]*|[\s\n\t\r])+/, ' \t\n\r').skip()
 }
 
-var rulemap = new Map<TokenDef, Rule<any>>()
-  .set(T.STR, T.STR.map(r => r.str.slice(1, -1)))
-  .set(T.TRUE, T.TRUE.map(() => true))
-  .set(T.FALSE, T.FALSE.map(() => false))
-  .set(T.NULL, T.NULL.map(() => null))
-  .set(T.NUM, T.NUM.map(r => parseFloat(r.str)))
-  .set(T.LBRACE, Forward(() => Obj))
-  .set(T.LBRACKET, Forward(() => Array))
+const S = tk.S.bind(tk)
 
-const Json: Rule<any> = new Rule((input, pos) => {
-  var tk: Token
-  while ((tk = input[pos], tk.is_skip)) { pos++ }
-  var r = rulemap.get(tk.def)
-  if (!r) return NoMatch
-  return r.parse(input, pos)
-})
-
-// const Json: Rule<any> = Either(
-//   T.STR.map(r => r.match.slice(1, -1)),
-//   T.TRUE.map(() => true),
-//   T.FALSE.map(() => false),
-//   T.NULL.map(() => null),
-//   T.NUM.map(r => parseFloat(r.match)),
-//   Forward(() => Array),
-//   Forward(() => Obj)
-// )
+const Json: Rule<any> = Either(
+  T.STR.map(r => r.str.slice(1, -1)),
+  T.TRUE.map(() => true),
+  T.FALSE.map(() => false),
+  T.NULL.map(() => null),
+  T.NUM.map(r => parseFloat(r.str)),
+  Forward(() => Array),
+  Forward(() => Obj)
+)
 
 const Array = S`[ ${SeparatedBy(S`,`, Json)} ]`
 

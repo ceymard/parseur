@@ -704,6 +704,13 @@ export class TdopOperatorRule<T> extends Rule<T> {
   _leds: Rule<any>[] = []
   leds!: Rule<TdopResult<T>>
 
+  current_build_level = 10
+
+  levelUp() {
+    this.current_build_level += 10
+    return this
+  }
+
   constructor(public terminal: Rule<T>) { super() }
 
   _init() {
@@ -770,8 +777,8 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return Res(res, pos)
   }
 
-  prefix<R>(power: number, rule: Rule<R>, fn: (op: R, right: T) => T | NoMatch) {
-    // var power = this.current_build_level
+  prefix<R>(rule: Rule<R>, fn: (op: R, right: T) => T | NoMatch) {
+    var power = this.current_build_level
     var nr = rule.map(r => TdopResult.create<T>({
       nud: expr => {
         var e = expr(power)
@@ -783,8 +790,8 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return this
   }
 
-  suffix<R>(power: number, rule: Rule<R>, fn: (op: R, left: T) => T | NoMatch) {
-    // var power = this.current_build_level
+  suffix<R>(rule: Rule<R>, fn: (op: R, left: T) => T | NoMatch) {
+    var power = this.current_build_level
     var lr = rule.map(r => TdopResult.create<T>({
       lbp: power,
       led(left, expr) {
@@ -795,7 +802,8 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return this
   }
 
-  binary<R>(power: number, rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  binary<R>(rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+    var power = this.current_build_level
     var lr = rule.map(r => TdopResult.create<T>({
       lbp: power,
       led(left, expr) {
@@ -808,7 +816,8 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return this
   }
 
-  binaryRight<R>(power: number, rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  binaryRight<R>(rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+    var power = this.current_build_level
     var lr = rule.map(r => TdopResult.create<T>({
       lbp: power,
       led(left, expr) {

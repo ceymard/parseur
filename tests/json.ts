@@ -40,7 +40,7 @@ const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
 
 const one = require('./1K_json').json_sample1k
 
-var tokens = tk.tokenize(one)!
+var tokens = TK.tokenize(one)!
 console.log(Json.parse(tokens, 0).res)
 
 
@@ -54,7 +54,7 @@ s.add(function Json() {
 })
 
 s.add(function JsonParse() {
-  tk.tokenize(one, { forget_skips: true })!
+  TK.tokenize(one, { forget_skips: true })!
   Json.parse(tokens, 0)
 })
 

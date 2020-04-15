@@ -1,13 +1,6 @@
 import { Parseur, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator, Eof } from '../index'
 
 const tk = new Parseur()
-const PLUS = tk.token('+')
-const MINUS = tk.token('-')
-const POW = tk.token('**')
-const MUL = tk.token('*')
-const DIV = tk.token('/')
-const LPAREN = tk.token('(')
-const RPAREN = tk.token(')')
 const NUM =   tk.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789') //.map(r => parseFloat(r.match[0])),
 // const WS =
 tk.token(/[\s\n]+/).skip()
@@ -21,12 +14,14 @@ export namespace CalcOp {
   )
 
   export const Expression: Rule<number> = TdopOperator(Terminal)
-    .binary(10, PLUS, (_, left, right) => left + right)
-    .binary(10, MINUS, (_, left, right) => left - right)
-    .prefix(10, MINUS, (_, left) => -left)
-    .binary(20, MUL, (_, left, right) => left * right)
-    .binary(20, DIV, (_, left, right) => left / right)
-    .binary(30, POW, (_, left, right) => Math.pow(left, right))
+    .binary(S`+`, (_, left, right) => left + right)
+    .binary(S`-`, (_, left, right) => left - right)
+    .levelUp()
+    .binary(S`*`, (_, left, right) => left * right)
+    .binary(S`/`, (_, left, right) => left / right)
+    .levelUp()
+    .binary(S`**`, (_, left, right) => Math.pow(left, right))
+    .prefix(S`-`, (_, left) => -left)
 
   export const TopLevel = Seq({expr: Expression}, Eof).map(r => r.expr)
 }
@@ -48,7 +43,7 @@ export namespace CalcRec {
 }
 
 function parse(r: Rule<number>, input: string) {
-  var tokens = tk.tokenize(input, { forget_skips: false, enable_line_counts: false })
+  var tokens = tk.tokenize(input, { forget_skips: true, enable_line_counts: false })
   if (!tokens) throw new Error('could not parse')
   // console.log(tokens?.map(t => t.str).join(' '))
   return r.parse(tokens, 0)

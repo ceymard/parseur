@@ -199,7 +199,7 @@ export class Tokenizer {
     if (tpl.length === 1 && rules.length === 0 && !tpl[0].match(/[\s\n]/)) {
       const get = this.str_tokens.get(tpl[0])
       if (get == undefined) throw new Error(`No token defined for '${tpl[0]}'`)
-      return get
+      return get.map(tk => tk.str)
     }
 
     var seq: Rule<any>[] = []
@@ -222,7 +222,7 @@ export class Tokenizer {
     }
 
     class SRule extends Rule<any> {
-      init() {
+      _init() {
         var keep_adding = true
         for (var s of seq) {
           s.init()
@@ -305,18 +305,21 @@ export class Rule<T> {
     for (var t of tks) this.start_tokens.add(t)
   }
 
-  init(): void | boolean {
+  init() {
+    if (this._inited) return
+    this._inited = true
+    if (!this._init()) {
+      this.parse = this.doParse
+    }
+  }
+
+  _init(): void | boolean {
     // use it to detect first tokens
   }
 
   _inited = false
   parse(input: Token[], pos: number): NoMatch | ParseResult<T> {
-    if (!this._inited) {
-      this._inited = true;
-      if (!this.init()) {
-        this.parse = this.doParse
-      }
-    }
+    this.init()
     return this.parse(input, pos)
   }
 
@@ -361,7 +364,7 @@ export class Rule<T> {
 export class MapRule<T, U> extends Rule<U> {
   constructor(public rule: Rule<T>, public fn: MapFn<T, U>) { super() }
 
-  init() {
+  _init() {
     this.rule.init()
     this.start_tokens = this.rule.start_tokens
   }
@@ -431,7 +434,7 @@ export class OptRule<T> extends Rule<T | undefined> {
 
   constructor(public rule: Rule<T>) { super() }
 
-  init() {
+  _init() {
     this.rule.init()
     this.start_tokens = this.rule.start_tokens
   }
@@ -453,7 +456,7 @@ export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rul
   can_optimize = true
   can_skip = true
 
-  init() {
+  _init() {
     for (var r of this.rules) {
       // FIXME : also create a map for the rules.
       r.init()
@@ -532,7 +535,7 @@ export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> 
     }
   }
 
-  init() {
+  _init() {
     for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
       var rule = rules[i]
       if (rule instanceof Rule)
@@ -567,7 +570,7 @@ export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> 
 export class RepeatRule<T> extends Rule<T[]> {
   public constructor(public rule: Rule<T>, public min?: number, public max?: number) { super() }
 
-  init() {
+  _init() {
     this.rule.init()
     this.start_tokens = this.rule.start_tokens
   }
@@ -603,7 +606,7 @@ export class NotRule extends Rule<null> {
 export class ForwardRule<T> extends Rule<T> {
   constructor(public rulefn: () => Rule<T>) { super() }
 
-  init() {
+  _init() {
     var rule = this.rulefn()
     rule.init()
     this.start_tokens = rule.start_tokens
@@ -672,29 +675,26 @@ export class TDopBuilder<T> extends Rule<T> {
 
   constructor(public terminal: Rule<T>) { super() }
 
-  init() {
-    for (var r of this._nuds) {
-      r.init()
-      this.addTokens(r.start_tokens)
-    }
-    this.terminal.init()
-    this.addTokens(this.terminal.start_tokens)
-    for (var r of this._leds) {
-      r.init()
-    }
+  _init() {
+    this.nuds = Either(...[...this._nuds, this.terminal.map(r => TdopResult.create<T>({value: r}))])
+    this.nuds.init()
+    this.leds = Either(...this._leds)
+    this.leds.init()
+    this.addTokens(this.nuds.start_tokens)
   }
 
   doParse(input: Token[], pos: number) {
-    const top = this.nuds ?? (this.nuds = Either(...[...this._nuds, this.terminal.map(r => TdopResult.create<T>({value: r}))]))
-    const bos = this.leds ?? (this.leds = Either(...this._leds))
+    const nuds = this.nuds
+    const leds = this.leds
 
-    var cached_op: TdopResult<T> | undefined
+    // var cached_op: TdopResult<T> | undefined
 
     function expression(rbp: number): T | NoMatch {
-      var leftp = top.parse(input, pos)
+      var leftp = nuds.parse(input, pos)
       if (leftp === NoMatch) return NoMatch
       var leftm = leftp.res
       pos = leftp.pos
+
       var left: T | NoMatch
       if (leftm.value != undefined) {
         left = leftm.value
@@ -704,39 +704,32 @@ export class TDopBuilder<T> extends Rule<T> {
       }
       if (left === NoMatch) return NoMatch
 
-      var op = bos.parse(input, pos)
+      var op = leds.parse(input, pos)
       if (op === NoMatch) return left
       var opm = op.res
-      cached_op = opm
-      pos = op.pos
+      // cached_op = opm
 
       while (rbp < opm.lbp!) {
+        pos = op.pos
         // only advance if the operator matched the current level
         // pos = op.pos
         // if (!opm.led) return NoMatch
         var opres = opm.led!(left, expression)
-        if (opres === NoMatch) return left
+        if (opres === NoMatch) {
+          return left
+        }
         // FIXME there should probably be a way of caching the operator that was matched
         // to recheck it here and avoid reparsing it.
         left = opres
 
         // first try to get the cached value.
 
-        if (cached_op != undefined) {
-          opm = cached_op
-          cached_op = undefined
-        } else {
-          var op = bos.parse(input, pos)
-          if (op === NoMatch) return left
-          opm = op.res
-          pos = op.pos
-          cached_op = opm
+        var op = leds.parse(input, pos)
+        if (op === NoMatch) {
+          return left
         }
+        opm = op.res
       }
-
-      // If we get here, it means we didn't return abruptly because there was no match,
-      // so we can keep the operator result for another expression evaluation ?
-      // cached_op = op.res
 
       return left
     }
@@ -851,7 +844,7 @@ export const Any = new class AnyRule extends TokenDef {
 
   constructor() { super('!any!', false) }
 
-  init() {
+  _init() {
     this.start_tokens.add(this)
   }
 

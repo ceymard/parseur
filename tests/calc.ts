@@ -16,7 +16,7 @@ const S = tk.S.bind(tk)
 export namespace CalcOp {
 
   const Terminal: Rule<number> = Either(
-    Seq(LPAREN, { exp: Forward(() => Expression) }, RPAREN).map(r => r.exp),
+    S`( ${Forward(() => Expression)} )`,
     NUM.map(n => parseFloat(n.str))
   )
 
@@ -61,7 +61,7 @@ console.log(parse(CalcOp.Expression, '2 + 4'))
 console.log(parse(CalcOp.Expression, '2 + 5 * 2 - 2'))
 console.log(parse(CalcOp.Expression, '2 + 5 * (2 - 2)'))
 console.log(parse(CalcOp.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
-console.log('--')
+console.log('<-->')
 console.log(parse(CalcRec.Expression, '2 + 4'))
 console.log(parse(CalcRec.Expression, '2 + 5 * 2 - 2'))
 console.log(parse(CalcRec.Expression, '2 + 5 * (2 - 2)'))
@@ -73,10 +73,6 @@ import { Suite } from 'benchmark'
 import * as Benchmark from 'benchmark'
 
 var s = new Suite()
-
-// s.add(function Json() {
-//   JSON.parse(one)
-// })
 
 s.add(function ParseOp() {
   parse(CalcOp.Expression, '2 + 4')
@@ -92,6 +88,7 @@ s.add(function ParseRec() {
   parse(CalcOp.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3')
 })
 
+// s.on('')
 
 s.run()
 

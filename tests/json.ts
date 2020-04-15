@@ -72,9 +72,9 @@ import * as Benchmark from 'benchmark'
 
 var s = new Suite()
 
-// s.add(function Json() {
-//   JSON.parse(one)
-// })
+s.add(function Json() {
+  JSON.parse(one)
+})
 
 s.add(function JsonParse() {
   tk.tokenize(one, { forget_skips: true })!

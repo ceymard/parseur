@@ -704,10 +704,10 @@ export class TdopOperatorRule<T> extends Rule<T> {
   _leds: Rule<any>[] = []
   leds!: Rule<TdopResult<T>>
 
-  current_build_level = 10
+  current_build_level = 1000
 
-  levelUp() {
-    this.current_build_level += 10
+  get down() {
+    this.current_build_level -= 10
     return this
   }
 

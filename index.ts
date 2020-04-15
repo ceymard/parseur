@@ -353,9 +353,6 @@ export class Rule<T> {
 
   map<U>(fn: MapFn<T, U>): Rule<U> {
     return new MapRule(this, fn)
-    // var r = new Rule(map(this, fn))
-    // r._name = this.Name
-    // return r
   }
 
   tap(fn: (res: T, input: Token[], pos: number, start: number) => any) {
@@ -559,10 +556,12 @@ export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> 
   _init() {
     for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
       var rule = rules[i]
-      if (rule instanceof Rule)
+      if (rule instanceof Rule) {
+        rule.init()
         this.addTokens(rule.start_tokens)
-      else {
+      } else {
         var r = Object.values(rule)[0]
+        r.init()
         this.addTokens(r.start_tokens)
       }
       if (!(rule instanceof OptRule)) break
@@ -645,6 +644,13 @@ export class SeparatedByRule<T> extends Rule<T[]> {
     super()
     this.leading = !!opts?.leading
     this.trailing = !!opts?.trailing
+  }
+
+  _init() {
+    this.sep.init()
+    this.rule.init()
+    if (this.leading) this.addTokens(this.sep.start_tokens)
+    this.addTokens(this.rule.start_tokens)
   }
 
   doParse(input: Token[], pos: number) {

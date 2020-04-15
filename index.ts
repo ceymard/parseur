@@ -37,7 +37,8 @@ export class Token {
 // want to parse synchronously or asynchronously
 export class Tokenizer {
 
-  token_defs = [] as TokenDef[]
+  noaccel_token_defs = [] as TokenDef[]
+  token_defs: TokenDef[] = []
   str_tokens = new Map<string, TokenDef>()
 
   // Accelerator for characters
@@ -61,7 +62,10 @@ export class Tokenizer {
 
     const add_to_ttable = (code: number) => {
       added = true;
-      (this.token_table[code] = this.token_table[code] ?? []).push(tdef)
+      var tbl = (this.token_table[code] = this.token_table[code] ?? [])
+      tbl.push(tdef)
+      tbl.sort((a, b) => a._regex < b._regex ? 1 : a._regex > b._regex ? -1 : 0)
+      // console.log(String.fromCharCode(code), tbl.map(t => t._regex))
     }
 
     if (accel) {
@@ -77,7 +81,8 @@ export class Tokenizer {
       this.str_tokens.set(def, tdef)
     }
 
-    if (!added) this.token_defs.push(tdef)
+    if (!added) this.noaccel_token_defs.push(tdef)
+    this.token_defs.push(tdef)
     return tdef
   }
 
@@ -86,8 +91,8 @@ export class Tokenizer {
     var pos = 0
     var enable_line_counts = !!opts?.enable_line_counts
     var forget_skips = !!opts?.forget_skips
-    var tkdefs = this.token_defs
-    var tokendefs = this.token_defs
+    var tkdefs = this.noaccel_token_defs
+    var tokendefs = this.noaccel_token_defs
     var l = tokendefs.length
     var tktbl = this.token_table
     var il = input.length

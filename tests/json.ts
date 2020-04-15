@@ -4,26 +4,6 @@ import { Tokenizer, Seq, Either, Rule, Forward, SeparatedBy } from '../index'
 var tk = new Tokenizer()
 
 const T = {
-  LBRACE: tk.token('{'),
-  RBRACE: tk.token('}'),
-  COLON: tk.token(':'),
-  LBRACKET: tk.token('['),
-  RBRACKET: tk.token(']'),
-  COMMA: tk.token(','),
-
-  // LBRACE: tk.token(/{/),
-  // RBRACE: tk.token(/}/),
-  // COLON: tk.token(/:/),
-  // LBRACKET: tk.token(/\[/),
-  // RBRACKET: tk.token(/\]/),
-  // COMMA: tk.token(/,/),
-
-  TRUE: tk.token('true'),
-  FALSE: tk.token('false'),
-  NULL: tk.token('null'),
-
-  // CTRL:  tk.token(/\{|\}|:|\[|\]|,/),
-
   // End with the regexps
   STR:   tk.token(/"(?:\\"|[^"])*"/, '"'), //.map(r => r.match[0].slice(1, -1)),
   NUM:   tk.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789-'), //.map(r => parseFloat(r.match[0])),
@@ -34,10 +14,10 @@ const S = tk.S.bind(tk)
 
 const Json: Rule<any> = Either(
   T.STR.map(r => r.str.slice(1, -1)),
-  T.TRUE.map(() => true),
-  T.FALSE.map(() => false),
-  T.NULL.map(() => null),
   T.NUM.map(r => parseFloat(r.str)),
+  S`true`.map(() => true),
+  S`false`.map(() => false),
+  S`null`.map(() => null),
   Forward(() => Array),
   Forward(() => Obj)
 )
@@ -58,7 +38,7 @@ const Obj = S`{ ${SeparatedBy(S`,`, Prop)} }`
     res[item.key] = item.value
   }
   return res
-})// .map(r => null)
+})
 
 
 const one = require('./1K_json').json_sample1k

@@ -1,4 +1,4 @@
-import { Tokenizer, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator } from '../index'
+import { Tokenizer, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator, Eof } from '../index'
 
 const tk = new Tokenizer()
 const PLUS = tk.token('+')
@@ -27,6 +27,8 @@ export namespace CalcOp {
     .binary(20, MUL, (_, left, right) => left * right)
     .binary(20, DIV, (_, left, right) => left / right)
     .binary(30, POW, (_, left, right) => Math.pow(left, right))
+
+  export const TopLevel = Seq({expr: Expression}, Eof).map(r => r.expr)
 }
 
 export namespace CalcRec {
@@ -41,24 +43,26 @@ export namespace CalcRec {
     .Binary(S`**`, (_, left, right) => Math.pow(left, right))
     .Binary(Either(S`*`, S`/`), (op, left, right) => op === '*' ? left * right : left / right)
     .Binary(Either(S`+`, S`-`), (op, left, right) => op === '+' ? left + right : left - right)
+
+  export const TopLevel = Seq({expr: Expression}, Eof).map(r => r.expr)
 }
 
 function parse(r: Rule<number>, input: string) {
-  var tokens = tk.tokenize(input, { forget_skips: true, enable_line_counts: false })
+  var tokens = tk.tokenize(input, { forget_skips: false, enable_line_counts: false })
   if (!tokens) throw new Error('could not parse')
   // console.log(tokens?.map(t => t.str).join(' '))
   return r.parse(tokens, 0)
 }
 
-console.log(parse(CalcOp.Expression, '2 + 4'))
-console.log(parse(CalcOp.Expression, '2 + 5 * 2 - 2'))
-console.log(parse(CalcOp.Expression, '- 2 + 5 * (2 - 2)'))
-console.log(parse(CalcOp.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
-console.log('<-->')
-console.log(parse(CalcRec.Expression, '2 + 4'))
-console.log(parse(CalcRec.Expression, '2 + 5 * 2 - 2'))
-console.log(parse(CalcRec.Expression, '- 2 + 5 * (2 - 2)'))
-console.log(parse(CalcRec.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
+console.log(parse(CalcOp.TopLevel, '2 + 4'))
+console.log(parse(CalcOp.TopLevel, '2 + 5 * 2 - 2'))
+console.log(parse(CalcOp.TopLevel, '- 2 + 5 * (2 - 2)'))
+console.log(parse(CalcOp.TopLevel, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
+console.log('>>>>')
+console.log(parse(CalcRec.TopLevel, '2 + 4'))
+console.log(parse(CalcRec.TopLevel, '2 + 5 * 2 - 2'))
+console.log(parse(CalcRec.TopLevel, '- 2 + 5 * (2 - 2)'))
+console.log(parse(CalcRec.TopLevel, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
 
 // process.exit(0)
 

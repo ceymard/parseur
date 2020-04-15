@@ -192,14 +192,32 @@ export class Tokenizer {
     return { status: 'nok' }
   }
 
+  auto_create_tokens = true
+
   S(tpl: TemplateStringsArray): Rule<string>
   S<T>(tpl: TemplateStringsArray, rule: Rule<T>): Rule<T>
   S<R extends Rule<any>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<{[K in keyof R]: Result<R[K]>}>
   S<R extends Rule<any>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any> {
+    const get_tkdef = (token: string) => {
+      var def = this.str_tokens.get(token)
+      if (!def && !this.auto_create_tokens) throw new Error(`No token defined for '${token}'`)
+      if (!def) {
+        // First try to see if one of our defined regexp would match and derive it.
+        for (var tkdef of this.token_defs) {
+          var sdef = tkdef._regex
+          if (sdef instanceof RegExp && ((sdef.lastIndex = 0), sdef.test(token))) {
+            return tkdef.derive(token, this)
+          }
+        }
+
+        // If there is still nothing, we create a new token
+        def = this.token(token)
+      }
+      return def
+    }
+
     if (tpl.length === 1 && rules.length === 0 && !tpl[0].match(/[\s\n]/)) {
-      const get = this.str_tokens.get(tpl[0])
-      if (get == undefined) throw new Error(`No token defined for '${tpl[0]}'`)
-      return get.map(tk => tk.str)
+      return get_tkdef(tpl[0]).map(tk => tk.str)
     }
 
     var seq: Rule<any>[] = []
@@ -209,9 +227,7 @@ export class Tokenizer {
     for (var i = 0, l = tpl.length; i < l; i++) {
       var strs = tpl[i].split(/\s+/g).filter(t => t !== '')
       for (var s of strs) {
-        var srule = this.str_tokens.get(s)
-        if (!srule) throw new Error(`No definition for token '${s}'`)
-        seq.push(srule)
+        seq.push(get_tkdef(s))
         in_res.push(false)
       }
       var r = rules[i]
@@ -898,9 +914,9 @@ export const Any = new class AnyRule extends TokenDef {
 }
 
 
-export const Eof = new class EOF {
+export const Eof = new class EOF extends Rule<null> {
   doParse(input: Token[], pos: number) {
-    if (pos >= input.length) return Res('!EOF!', pos)
+    if (pos >= input.length) return Res(null, pos)
     return NoMatch
   }
 }

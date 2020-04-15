@@ -851,7 +851,7 @@ export const Any = new class AnyRule extends TokenDef {
   doParse(input: Token[], pos: number) {
     var tok: Token | undefined
     while ((tok = input[pos], tok && tok.is_skip)) { pos++ }
-    return tok ? Res(tok, pos) : NoMatch
+    return tok ? Res(tok, pos + 1) : NoMatch
   }
 }
 

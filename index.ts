@@ -18,6 +18,31 @@ export type NoMatch = typeof NoMatch
 
 
 /**
+ * An object representing an actual match to a rule.
+ */
+export class ParseResult<T> {
+  debug?: string[]
+  constructor(public res: T, public pos: number) { }
+}
+
+
+export function Res<T>(res: T, pos: number) {
+  var r = new ParseResult(res, pos)
+  var max = Res.max_res
+  if (!max) Res.max_res = r
+  else if (max && r.pos > max.pos) {
+    Res.max_res = r
+    if (DEBUG) r.debug = DEBUG_STACK
+  }
+  return r
+}
+
+export namespace Res {
+  export var max_res: ParseResult<any> | null = null
+}
+
+
+/**
  * The result of a string processing by [[Tokenizer.tokenize]]
  */
 export class Token {
@@ -278,35 +303,10 @@ export class Parseur {
 
 
 /**
- * An object representing an actual match to a rule.
- */
-export class ParseResult<T> {
-  debug?: string[]
-  constructor(public res: T, public pos: number) { }
-}
-
-
-/**
  * Escape `str` to make it suitable to build a `RegExp`
  */
 export function escape(str: string) {
   return str.replace(/[?.\$\^\{\}\[\]\(\)*+$\|]/g, m => '\\' + m)
-}
-
-
-export function Res<T>(res: T, pos: number) {
-  var r = new ParseResult(res, pos)
-  var max = Res.max_res
-  if (!max) Res.max_res = r
-  else if (max && r.pos > max.pos) {
-    Res.max_res = r
-    if (DEBUG) r.debug = DEBUG_STACK
-  }
-  return r
-}
-
-export namespace Res {
-  export var max_res: ParseResult<any> | null = null
 }
 
 

@@ -247,16 +247,8 @@ export class Parseur {
     }
 
     class SRule extends Rule<any> {
-      _init() {
-        var keep_adding = true
-        for (var s of seq) {
-          s.init()
-          if (keep_adding) this.addTokens(s.start_tokens)
-          if (!(s instanceof OptRule)) keep_adding = false
-        }
-      }
 
-      doParse(input: Token[], pos: number) {
+      parse(input: Token[], pos: number) {
         var res: any[] = []
 
         for (var i = 0, l = seq.length; i < l; i++) {
@@ -322,35 +314,13 @@ export type Result<T> = T extends Rule<infer U> ? U : never
 /**
  * A rule is given a chance to init before it parses.
  */
-export class Rule<T> {
+export abstract class Rule<T> {
 
   start_tokens = new Set<TokenDef>()
-
-  addTokens(tks: Set<TokenDef>) {
-    for (var t of tks) this.start_tokens.add(t)
-  }
-
-  init() {
-    if (this._inited) return
-    this._inited = true
-    if (!this._init()) {
-      this.parse = this.doParse
-    }
-  }
-
-  _init(): void | boolean {
-    // use it to detect first tokens
-  }
+  get startTokenDebug() { return [...this.start_tokens].map(t => t._regex) }
 
   _inited = false
-  parse(input: Token[], pos: number): NoMatch | ParseResult<T> {
-    this.init()
-    return this.parse(input, pos)
-  }
-
-  doParse(input: Token[], pos: number): NoMatch | ParseResult<T> {
-    throw new Error('Rule is not defined...')
-  }
+  abstract parse(input: Token[], pos: number): NoMatch | ParseResult<T>
 
   _name = ''
   _build_name: null | (() => string) = null
@@ -386,12 +356,7 @@ export class Rule<T> {
 export class MapRule<T, U> extends Rule<U> {
   constructor(public rule: Rule<T>, public fn: MapFn<T, U>) { super() }
 
-  _init() {
-    this.rule.init()
-    this.start_tokens = this.rule.start_tokens
-  }
-
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     var res = this.rule.parse(input, pos)
     if (res === NoMatch) return NoMatch
     var res2 = this.fn(res.res, input, res.pos, pos)
@@ -404,7 +369,6 @@ export class MapRule<T, U> extends Rule<U> {
 
 
 export class TokenDef extends Rule<Token> {
-  start_tokens = new Set<TokenDef>().add(this)
 
   constructor(
     public _regex: RegExp | string,
@@ -422,7 +386,7 @@ export class TokenDef extends Rule<Token> {
     return tkd
   }
 
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     var next: Token | undefined
     while ((next = input[pos++])) {
       if (next.def === this) return Res(next, pos)
@@ -456,12 +420,7 @@ export class OptRule<T> extends Rule<T | undefined> {
 
   constructor(public rule: Rule<T>) { super() }
 
-  _init() {
-    this.rule.init()
-    this.start_tokens = this.rule.start_tokens
-  }
-
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     var res = this.rule.parse(input, pos)
     if (res === NoMatch) return Res(undefined, pos)
     return res
@@ -475,24 +434,16 @@ export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rul
   constructor(public rules: Rules) { super() }
 
   rulemap = new Map<TokenDef, Rule<any>[]>()
-  can_optimize = true
-  can_skip = true
+  can_optimize = false
+  can_skip = false
 
-  _init() {
-    for (var r of this.rules) {
-      // FIXME : also create a map for the rules.
-      r.init()
-      for (var tk of r.start_tokens) {
-        if (tk === Any) this.can_optimize = false
-        if (tk._skip) this.can_skip = false
-        this.start_tokens.add(tk);
-        (this.rulemap.get(tk) ?? this.rulemap.set(tk, []).get(tk)!).push(r)
-      }
-      this.addTokens(r.start_tokens)
-    }
-  }
+  // parse(input: Token[], pos: number) {
+  //   throw new Error('STUFF')
+  //   this.parse = this.doParse
+  //   return this.doParse(input, pos)
+  // }
 
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     var tk: Token | undefined
 
     if (this.can_skip) {
@@ -557,22 +508,7 @@ export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> 
     }
   }
 
-  _init() {
-    for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
-      var rule = rules[i]
-      if (rule instanceof Rule) {
-        rule.init()
-        this.addTokens(rule.start_tokens)
-      } else {
-        var r = Object.values(rule)[0]
-        r.init()
-        this.addTokens(r.start_tokens)
-      }
-      if (!(rule instanceof OptRule)) break
-    }
-  }
-
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     var res = {} as any
     var rules = this.real_rules
     var names = this.names
@@ -594,12 +530,7 @@ export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> 
 export class RepeatRule<T> extends Rule<T[]> {
   public constructor(public rule: Rule<T>, public min?: number, public max?: number) { super() }
 
-  _init() {
-    this.rule.init()
-    this.start_tokens = this.rule.start_tokens
-  }
-
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     var res: T[] = []
     var rres: ParseResult<any> | NoMatch
     var rule = this.rule
@@ -619,7 +550,7 @@ export class RepeatRule<T> extends Rule<T[]> {
 export class NotRule extends Rule<null> {
   constructor(public rule: Rule<any>) { super() }
 
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     var res = this.rule.parse(input, pos)
     if (res === NoMatch) return Res(null, pos)
     return NoMatch
@@ -630,12 +561,17 @@ export class NotRule extends Rule<null> {
 export class ForwardRule<T> extends Rule<T> {
   constructor(public rulefn: () => Rule<T>) { super() }
 
-  _init() {
-    var rule = this.rulefn()
-    rule.init()
-    this.start_tokens = rule.start_tokens
+  rule?: Rule<T>
+
+  parse(input: Token[], pos: number): ParseResult<T> | NoMatch {
+    this.init()
+    return this.parse(input, pos)
+  }
+
+  init() {
+    if (this.rule) return
+    var rule = this.rule = this.rulefn()
     this.parse = rule.parse.bind(rule)
-    return true
   }
 }
 
@@ -650,14 +586,7 @@ export class SeparatedByRule<T> extends Rule<T[]> {
     this.trailing = !!opts?.trailing
   }
 
-  _init() {
-    this.sep.init()
-    this.rule.init()
-    if (this.leading) this.addTokens(this.sep.start_tokens)
-    this.addTokens(this.rule.start_tokens)
-  }
-
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     const sep = this.sep
     const rule = this.rule
     const res: T[] = []
@@ -713,12 +642,16 @@ export class TdopOperatorRule<T> extends Rule<T> {
 
   constructor(public terminal: Rule<T>) { super() }
 
-  _init() {
-    this.nuds = Either(...[...this._nuds, this.terminal.map(r => TdopResult.create<T>({value: r}))])
-    this.nuds.init()
-    this.leds = Either(...this._leds)
-    this.leds.init()
-    this.addTokens(this.nuds.start_tokens)
+  init() {
+    if (this.nuds) return
+    this.nuds = new EitherRule([...this._nuds, this.terminal.map(t => TdopResult.create({value: t}))])
+    this.leds = new EitherRule(this._leds)
+  }
+
+  parse(input: Token[], pos: number) {
+    this.init()
+    this.parse = this.doParse
+    return this.doParse(input, pos)
   }
 
   doParse(input: Token[], pos: number) {
@@ -836,16 +769,18 @@ export class TdopOperatorRule<T> extends Rule<T> {
 export class RecOperatorRule<T> extends Rule<T> {
   build_expr: ((upper_level: Rule<T>) => Rule<T>)[] = []
   public constructor(public terminal: Rule<T>) { super() }
+  expr: Rule<T> | undefined
 
-  _init() {
-    this.terminal.init()
-    var expr = this.build_expr.reduce((acc, item) => {
-      var rule = item(acc)
-      rule.init()
-      return rule
-    }, this.terminal)
+  init() {
+    if (this.expr) return
+    var expr = this.expr = this.build_expr.reduce((acc, item) => item(acc), this.terminal)
     this.start_tokens = expr.start_tokens
-    this.doParse = expr.doParse.bind(expr)
+    this.parse = expr.parse.bind(expr)
+  }
+
+  parse(input: Token[], pos: number) {
+    this.init()
+    return this.expr!.parse(input, pos)
   }
 
   Binary<R>(op: Rule<R>, fn: (op: R, left: T, right: T) => T) {
@@ -939,7 +874,7 @@ export const Any = new class AnyRule extends TokenDef {
 
 
 export const Eof = new class EOF extends Rule<null> {
-  doParse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number) {
     if (pos >= input.length) return Res(null, pos)
     return NoMatch
   }

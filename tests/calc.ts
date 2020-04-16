@@ -15,12 +15,12 @@ export namespace CalcOp {
 
   export const Expression: Rule<number> = TdopOperator(Terminal)
     .prefix(S`-`, (_, left) => -left)
-    .down()
+    .down
     .binary(S`**`, (_, left, right) => Math.pow(left, right))
-    .down()
+    .down
     .binary(S`*`, (_, left, right) => left * right)
     .binary(S`/`, (_, left, right) => left / right)
-    .down()
+    .down
     .binary(S`+`, (_, left, right) => left + right)
     .binary(S`-`, (_, left, right) => left - right)
 
@@ -75,10 +75,10 @@ s.add(function ParseOp() {
 })
 
 s.add(function ParseRec() {
-  parse(CalcOp.Expression, '2 + 4')
-  parse(CalcOp.Expression, '2 + 5 * 2 - 2')
-  parse(CalcOp.Expression, '2 + 5 * (2 - 2)')
-  parse(CalcOp.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3')
+  parse(CalcRec.Expression, '2 + 4')
+  parse(CalcRec.Expression, '2 + 5 * 2 - 2')
+  parse(CalcRec.Expression, '2 + 5 * (2 - 2)')
+  parse(CalcRec.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3')
 })
 
 // s.on('')

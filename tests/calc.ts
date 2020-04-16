@@ -11,7 +11,7 @@ export namespace CalcOp {
   const Terminal: Rule<number> = Either(
     NUM.map(n => parseFloat(n.str)),
     S`( ${Forward(() => Expression)} )`,
-  )
+  ).setName('Op Terminal')
 
   export const Expression: Rule<number> = TdopOperator(Terminal)
     .prefix(S`-`, (_, left) => -left)
@@ -27,18 +27,20 @@ export namespace CalcOp {
   export const TopLevel = Seq({expr: Expression}, Eof).map(r => r.expr)
 }
 
+// console.log(CalcOp.Expression._inited)
+
 export namespace CalcRec {
 
   const Terminal = Either(
     NUM.map(n => parseFloat(n.str)),
     S`( ${Forward(() => Expression)} )`,
-  )
+  ).setName('Rec Terminal')
 
   export const Expression: Rule<number> = RecOperator(Terminal)
     .Prefix(S`-`, (_, right) => -right)
     .Binary(S`**`, (_, left, right) => Math.pow(left, right))
-    .Binary(Either(S`*`, S`/`), (op, left, right) => op === '*' ? left * right : left / right)
-    .Binary(Either(S`+`, S`-`), (op, left, right) => op === '+' ? left + right : left - right)
+    .Binary(Either(S`*`, S`/`).setName('Rec * /'), (op, left, right) => op === '*' ? left * right : left / right)
+    .Binary(Either(S`+`, S`-`).setName('Rec + -'), (op, left, right) => op === '+' ? left + right : left - right)
 
   export const TopLevel = Seq({expr: Expression}, Eof).map(r => r.expr)
 }

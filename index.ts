@@ -74,9 +74,9 @@ export class Parseur<C extends Context = Context> {
   }
 
   nameRules() {
-    for (var key of Object.getOwnPropertyNames(this)) {
-      var p = (this as any)[key]
-      if (p instanceof Rule) {
+    for (var key of Object.getOwnPropertyNames(this) as (keyof this & string)[]) {
+      var p = this[key]
+      if (p instanceof Rule && !p._name) {
         p.setName(key)
       }
     }

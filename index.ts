@@ -199,11 +199,11 @@ export class Parseur<C extends Context = Context> {
     return res
   }
 
-  parse(input: string, rule: Rule<any, C>) {
+  parseRule(input: string, rule: Rule<any, C>, getctx: (input: Token[]) => C) {
     var tokens = this.tokenize(input, { enable_line_counts: true, forget_skips: true })
     // console.log('??')
     if (tokens) {
-      const ctx = new Context(tokens) as C
+      const ctx = getctx(tokens)
       var res = rule.parse(ctx, 0) // FIXME
 
       var failed = true
@@ -216,14 +216,14 @@ export class Parseur<C extends Context = Context> {
 
       if (res === NoMatch || failed) {
         // console.log('Match failed')
-        return { status: 'nok', max_token: ctx.furthest_token, max_pos: ctx.furthest_pos, tokens }
+        return { status: 'nok' as const, max_token: ctx.furthest_token, max_pos: ctx.furthest_pos, tokens }
         // console.log(Res.max_res)
       } else {
-        return { status: 'ok', result: res.res }
+        return { status: 'ok' as const, result: res.res }
         // console.log(inspect(res.res, {depth: null}))
       }
     }
-    return { status: 'nok' }
+    return { status: 'nok' as const, }
   }
 
   auto_create_tokens = true

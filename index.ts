@@ -203,7 +203,7 @@ export class Parseur<C extends Context = Context> {
     var tokens = this.tokenize(input, { enable_line_counts: true, forget_skips: true })
     // console.log('??')
     if (tokens) {
-      const ctx = new Context(tokens)
+      const ctx = new Context(tokens) as C
       var res = rule.parse(ctx, 0) // FIXME
 
       var failed = true
@@ -968,25 +968,26 @@ export function Not<C extends Context>(rule: Rule<any, C>): Rule<null, C> {
 }
 
 
-export const Any = new class AnyRule extends TokenDef<any> {
+export const Any = new class AnyRule extends TokenDef<Context> {
 
   constructor() { super('!any!', false) }
 
-  parse(input: Token[], pos: number) {
+  parse(ctx: Context, pos: number) {
     var tok: Token | undefined
+    const input = ctx.input
     while ((tok = input[pos], tok && tok.is_skip)) { pos++ }
     return tok ? Res(tok, pos + 1) : NoMatch
   }
 }
 
 
-export const Eof = new class EOF extends Rule<null, any> {
+export const Eof = new class EOF extends Rule<null, Context> {
   firstTokens() {
     // do nothing
   }
 
-  parse(input: Token[], pos: number) {
-    if (pos >= input.length) return Res(null, pos)
+  parse(ctx: Context, pos: number) {
+    if (pos >= ctx.input.length) return Res(null, pos)
     return NoMatch
   }
 }

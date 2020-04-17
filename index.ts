@@ -33,9 +33,12 @@ export function Res<T>(res: T, pos: number) {
 
 export class Context {
   errors: any[] = []
+  // input: Token[] = []
 
   furthest_token: Token | undefined
   furthest_pos: number | undefined
+
+  constructor(public input: Token[]) { }
 }
 
 
@@ -200,8 +203,8 @@ export class Parseur<C extends Context = Context> {
     var tokens = this.tokenize(input, { enable_line_counts: true, forget_skips: true })
     // console.log('??')
     if (tokens) {
-      const ctx = new Context()
-      var res = rule.parse(tokens, 0, ctx) // FIXME
+      const ctx = new Context(tokens)
+      var res = rule.parse(ctx, 0) // FIXME
 
       var failed = true
       if (res !== NoMatch) {
@@ -278,11 +281,11 @@ export class Parseur<C extends Context = Context> {
         }
       }
 
-      parse(input: Token[], pos: number, ctx: C) {
+      parse(ctx: C, pos: number = 0) {
         var res: any[] = []
 
         for (var i = 0, l = seq.length; i < l; i++) {
-          var match = seq[i].parse(input, pos, ctx)
+          var match = seq[i].parse(ctx, pos)
           if (match === NoMatch) return NoMatch
           if (in_res[i]) res.push(match.res)
           pos = match.pos
@@ -307,7 +310,7 @@ export function escape(str: string) {
 }
 
 
-export type ThenFn<T, U, C extends Context> = (res: T, ctx: C, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U, C>
+export type ThenFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U, C>
 
 
 /**
@@ -341,7 +344,7 @@ export abstract class Rule<T, C extends Context = Context> {
     throw new Error(`No first tokens`)
   }
 
-  abstract parse(input: Token[], pos: number, ctx: C): NoMatch | ParseResult<T>
+  abstract parse(ctx: C, pos?: number): NoMatch | ParseResult<T>
 
   _name = ''
   _build_name: null | (() => string) = null
@@ -350,9 +353,9 @@ export abstract class Rule<T, C extends Context = Context> {
     return new ThenRule(this, fn)
   }
 
-  tap(fn: (res: T, ctx: C, input: Token[], pos: number, start: number) => any) {
-    return this.then((res, ctx, input, pos, start) => {
-      fn(res, ctx, input, pos, start)
+  tap(fn: (res: T, ctx: C, pos: number, start: number) => any) {
+    return this.then((res, ctx, pos, start) => {
+      fn(res, ctx, pos, start)
       return res
     })
   }
@@ -381,13 +384,13 @@ export class ThenRule<T, U, C extends Context = Context> extends Rule<U, C> {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
-    var res = this.rule.parse(input, pos, ctx)
+  parse(ctx: C, pos: number = 0) {
+    var res = this.rule.parse(ctx, pos)
     if (res === NoMatch) return NoMatch
-    var res2 = this.fn(res.res, ctx, input, res.pos, pos)
+    var res2 = this.fn(res.res, ctx, res.pos, pos)
     if (res2 === NoMatch) return NoMatch
     if (res2 instanceof ParseResult) return res2
-    if (res2 instanceof Rule) return res2.parse(input, res.pos, ctx)
+    if (res2 instanceof Rule) return res2.parse(ctx, res.pos)
     return Res(res2, res.pos)
   }
 }
@@ -417,8 +420,9 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
     return tkd
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
+  parse(ctx: C, pos: number = 0) {
     var next: Token | undefined
+    var input = ctx.input
     while ((next = input[pos++])) {
       if (next.def === this) {
         var r = Res(next, pos)
@@ -463,8 +467,8 @@ export class OptRule<T, C extends Context> extends Rule<T | undefined, C> {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
-    var res = this.rule.parse(input, pos, ctx)
+  parse(ctx: C, pos: number = 0) {
+    var res = this.rule.parse(ctx, pos)
     if (res === NoMatch) return Res(undefined, pos)
     return res
   }
@@ -472,11 +476,11 @@ export class OptRule<T, C extends Context> extends Rule<T | undefined, C> {
 }
 
 
-export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends Rule<{[K in keyof Rules]: Result<Rules[K]>}[number], C> {
+export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyof Rules]: Result<Rules[K]>}[number], SeqContext<Rules>> {
 
   constructor(public rules: Rules) { super() }
 
-  rulemap = new Map<TokenDef<C>, Rule<any, C>[]>()
+  rulemap = new Map<TokenDef<SeqContext<Rules>>, Rule<any, any>[]>()
   can_optimize = true
   can_skip = true
 
@@ -486,7 +490,7 @@ export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends
     }
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
+  parse(ctx: SeqContext<Rules>, pos: number = 0) {
     this.parse = this.doParse
     var rs = new RuleSet()
     this.firstTokens(rs)
@@ -494,7 +498,7 @@ export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends
     rules: for (var r of this.rules) {
       for (var t of r.first_tokens) {
         if (t._skip) this.can_skip = false
-        if (t === Any) {
+        if (t === Any as TokenDef<any>) {
           this.can_optimize = false
           // break rules
         }
@@ -502,12 +506,13 @@ export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends
       }
     }
 
-    return this.doParse(input, pos, ctx)
+    return this.doParse(ctx, pos)
   }
 
-  doParse(input: Token[], pos: number, ctx: C) {
+  doParse(ctx: SeqContext<Rules>, pos: number = 0) {
     var tk: Token | undefined
 
+    const input = ctx.input
     if (this.can_skip) {
       while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
     }
@@ -519,7 +524,7 @@ export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends
         if (_rules) {
           for (var i = 0, l = _rules.length; i < l; i++) {
             var rule = _rules[i]
-            var res = rule.parse(input, pos, ctx)
+            var res = rule.parse(ctx, pos)
             if (res !== NoMatch) return res
           }
         }
@@ -531,7 +536,7 @@ export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends
 
     for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
       var rule = rules[i]
-      var res = rule.parse(input, pos, ctx)
+      var res = rule.parse(ctx, pos)
       if (res !== NoMatch) return res
     }
     return NoMatch
@@ -543,14 +548,24 @@ export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends
 export type UnionToIntersection<U> =
   (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
 
-export class SeqRule<Rules extends (Rule<any, C> | {[name: string]: Rule<any, C>})[], C extends Context> extends Rule<UnionToIntersection<
-  {[K in keyof Rules]: [Rules[K]] extends [{[name: string]: Rule<any, C>}] ?
-    {[K2 in keyof Rules[K]]: Result<Rules[K][K2]>}
-    : never
-  }[number]
-  > & {}, C> {
 
-  real_rules: Rule<any, C>[] = []
+export type SeqResult<T extends any[]> = {[K in keyof T]:
+  [T[K]] extends [{[name: string]: Rule<any, any>}] ?
+    {[K2 in keyof T[K]]: Result<T[K][K2]>}
+  : never
+}[number]
+
+export type SeqContext<T extends any[]> = {[K in keyof T]:
+  [T[K]] extends [{[name: string]: Rule<any, infer C>}] ?
+    C
+  : [T[K]] extends [Rule<any, infer C>] ?
+    C
+  : never
+}[number]
+
+export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]> extends Rule<UnionToIntersection<SeqResult<Rules>> & {}, SeqContext<Rules>> {
+
+  real_rules: Rule<any, SeqContext<Rules>>[] = []
   names: (string | null)[] = []
 
   constructor(public rules: Rules) {
@@ -577,14 +592,14 @@ export class SeqRule<Rules extends (Rule<any, C> | {[name: string]: Rule<any, C>
     }
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
+  parse(ctx: SeqContext<Rules>, pos: number = 0) {
     var res = {} as any
     var rules = this.real_rules
     var names = this.names
     for (var i = 0, l = rules.length; i < l; i++) {
       var rule = rules[i]
       var key = names[i]
-      var match = rule.parse(input, pos, ctx)
+      var match = rule.parse(ctx, pos)
       // console.log(key, match, entries[i][1])
       if (match === NoMatch) return NoMatch
       pos = match.pos
@@ -603,13 +618,13 @@ export class RepeatRule<T, C extends Context> extends Rule<T[], C> {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
+  parse(ctx: C, pos: number = 0) {
     var res: T[] = []
     var rres: ParseResult<any> | NoMatch
     var rule = this.rule
     var min = this.min
     var max = this.max
-    while ((rres = rule.parse(input, pos, ctx)) !== NoMatch) {
+    while ((rres = rule.parse(ctx, pos)) !== NoMatch) {
       res.push(rres.res)
       pos = rres.pos
       if (max != null && res.length >= max) break
@@ -627,8 +642,8 @@ export class NotRule<C extends Context> extends Rule<null, C> {
     // Does nothing, because it *does not* want
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
-    var res = this.rule.parse(input, pos, ctx)
+  parse(ctx: C, pos: number = 0) {
+    var res = this.rule.parse(ctx, pos)
     if (res === NoMatch) return Res(null, pos)
     return NoMatch
   }
@@ -645,9 +660,9 @@ export class ForwardRule<T, C extends Context> extends Rule<T, C> {
     this.rule!.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number, ctx: C): ParseResult<T> | NoMatch {
+  parse(ctx: C, pos: number = 0): ParseResult<T> | NoMatch {
     this.init()
-    return this.parse(input, pos, ctx)
+    return this.parse(ctx, pos)
   }
 
   init() {
@@ -674,24 +689,24 @@ export class SeparatedByRule<T, C extends Context> extends Rule<T[], C> {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
+  parse(ctx: C, pos: number = 0) {
     const sep = this.sep
     const rule = this.rule
     const res: T[] = []
 
     if (this.leading) {
-      var lres = sep.parse(input, pos, ctx)
+      var lres = sep.parse(ctx, pos)
       if (lres !== NoMatch) pos = lres.pos
     }
 
     var at_sep = false
     while (true) {
-      var rres = rule.parse(input, pos, ctx)
+      var rres = rule.parse(ctx, pos)
       if (rres === NoMatch) { at_sep = false; break }
       res.push(rres.res)
       pos = rres.pos
 
-      var sres = sep.parse(input, pos, ctx)
+      var sres = sep.parse(ctx, pos)
       if (sres === NoMatch) { at_sep = true; break }
       pos = sres.pos
     }
@@ -737,24 +752,24 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
 
   init() {
     if (this.nuds) return
-    this.nuds = new EitherRule<Rule<TdopResult<T>, C>[], C>([...this._nuds, this.terminal.then(t => TdopResult.create({value: t}))]).setName('Nuds')
-    this.leds = new EitherRule<Rule<TdopResult<T>, C>[], C>(this._leds).setName('Leds')
+    this.nuds = new EitherRule([...this._nuds, this.terminal.then(t => TdopResult.create({value: t}))]).setName('Nuds')
+    this.leds = new EitherRule(this._leds).setName('Leds')
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
+  parse(ctx: C, pos: number = 0) {
     this.init()
     this.parse = this.doParse
-    return this.doParse(input, pos, ctx)
+    return this.doParse(ctx, pos)
   }
 
-  doParse(input: Token[], pos: number, ctx: C) {
+  doParse(ctx: C, pos: number = 0) {
     const nuds = this.nuds
     const leds = this.leds
 
     // var cached_op: TdopResult<T> | undefined
 
     function expression(rbp: number): T | NoMatch {
-      var leftp = nuds.parse(input, pos, ctx)
+      var leftp = nuds.parse(ctx, pos)
       if (leftp === NoMatch) return NoMatch
       var leftm = leftp.res
       pos = leftp.pos
@@ -768,7 +783,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
       }
       if (left === NoMatch) return NoMatch
 
-      var op = leds.parse(input, pos, ctx)
+      var op = leds.parse(ctx, pos)
       if (op === NoMatch) return left
       var opm = op.res
       // cached_op = opm
@@ -788,7 +803,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
 
         // first try to get the cached value.
 
-        var op = leds.parse(input, pos, ctx)
+        var op = leds.parse(ctx, pos)
         if (op === NoMatch) {
           return left
         }
@@ -875,9 +890,9 @@ export class RecOperatorRule<T, C extends Context> extends Rule<T, C> {
     this.parse = expr.parse.bind(expr)
   }
 
-  parse(input: Token[], pos: number, ctx: C) {
+  parse(ctx: C, pos: number = 0) {
     this.init()
-    return this.expr!.parse(input, pos, ctx)
+    return this.expr!.parse(ctx, pos)
   }
 
   Binary<R>(op: Rule<R, C>, fn: (op: R, left: T, right: T) => T) {
@@ -897,7 +912,10 @@ export class RecOperatorRule<T, C extends Context> extends Rule<T, C> {
   }
 
   Prefix<R>(op: Rule<R, C>, fn: (op: R, right: T) => T) {
-    this.build_expr.push(upper => Seq({ op: Opt(op) }, { upper }).then(r => r.op != undefined ? fn(r.op, r.upper) : r.upper))
+    this.build_expr.push(upper => {
+      var res = Seq({ op: Opt(op) }, { upper }).then(r => r.op != undefined ? fn(r.op, r.upper) : r.upper)
+      return res
+    })
     return this
   }
 
@@ -909,12 +927,8 @@ export class RecOperatorRule<T, C extends Context> extends Rule<T, C> {
 
 /////////////////////////////
 
-export function Seq<T extends (Rule<any, C> | {[name: string]: Rule<any, C>})[], C extends Context>(...seq: T): Rule<UnionToIntersection<
-  {[K in keyof T]: [T[K]] extends [{[name: string]: Rule<any, C>}] ?
-    {[K2 in keyof T[K]]: Result<T[K][K2]>}
-    : never
-  }[number]
-> & {}, C> {
+export function Seq<T extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]>(...seq: T)
+  : Rule<UnionToIntersection<SeqResult<T>> & {}, SeqContext<T>> {
   return new SeqRule(seq)
 }
 
@@ -925,7 +939,7 @@ export function Seq<T extends (Rule<any, C> | {[name: string]: Rule<any, C>})[],
  *
  * Most rules should be able to be run once before calling their actual parse methods.
  */
-export function Either<T extends Rule<any, C>[], C extends Context>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number], C> {
+export function Either<T extends Rule<any, any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number], SeqContext<T>> {
   return new EitherRule(rules)
 }
 

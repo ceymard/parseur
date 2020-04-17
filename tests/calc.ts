@@ -49,7 +49,7 @@ function parse(r: Rule<number>, input: string) {
   var tokens = tk.tokenize(input, { forget_skips: true, enable_line_counts: false })
   if (!tokens) throw new Error('could not parse')
   // console.log(tokens?.map(t => t.str).join(' '))
-  return r.parse(tokens, 0, new Context)
+  return r.parse(new Context(tokens), 0)
 }
 
 console.log(parse(CalcOp.TopLevel, '2 + 4'))

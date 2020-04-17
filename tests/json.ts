@@ -67,7 +67,7 @@ export namespace JsonNoRes {
 const one = require('./1K_json').json_sample1k
 
 var tokens = TK.tokenize(one)!
-console.log(JsonWithResult.Json.parse(tokens, 0, new Context()).res)
+console.log(JsonWithResult.Json.parse(new Context(tokens)).res)
 
 
 import { Suite } from 'benchmark'
@@ -80,13 +80,13 @@ s.add(function Json() {
 })
 
 s.add(function JsonRes() {
-  TK.tokenize(one, { forget_skips: true })!
-  JsonWithResult.Json.parse(tokens, 0, new Context)
+  const tokens = TK.tokenize(one, { forget_skips: true })!
+  JsonWithResult.Json.parse(new Context(tokens))
 })
 
 s.add(function JsonNoResult() {
-  TK.tokenize(one, { forget_skips: true })!
-  JsonNoRes.Json.parse(tokens, 0, new Context)
+  const tokens = TK.tokenize(one, { forget_skips: true })!
+  JsonNoRes.Json.parse(new Context(tokens))
 })
 
 s.run()

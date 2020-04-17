@@ -27,14 +27,7 @@ export class ParseResult<T> {
 
 
 export function Res<T>(res: T, pos: number) {
-  var r = new ParseResult(res, pos)
-  var max = Res.max_res
-  if (!max) Res.max_res = r
-  else if (max && r.pos > max.pos) {
-    Res.max_res = r
-    if (DEBUG) r.debug = DEBUG_STACK
-  }
-  return r
+  return new ParseResult(res, pos)
 }
 
 export namespace Res {
@@ -423,7 +416,16 @@ export class TokenDef extends Rule<Token> {
   parse(input: Token[], pos: number) {
     var next: Token | undefined
     while ((next = input[pos++])) {
-      if (next.def === this) return Res(next, pos)
+      if (next.def === this) {
+        var r = Res(next, pos)
+        var max = Res.max_res
+        if (!max) Res.max_res = r
+        else if (max && r.pos > max.pos) {
+          Res.max_res = r
+          if (DEBUG) r.debug = DEBUG_STACK
+        }
+        return  r
+      }
       if (!next.is_skip) return NoMatch
     }
     return NoMatch

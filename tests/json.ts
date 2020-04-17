@@ -9,39 +9,65 @@ const TK = new class JsonTokenizer extends Parseur {
 
 const T = TK.S
 
-const Json: Rule<any> = Either(
-  TK.STR.map(r => r.str.slice(1, -1)),
-  TK.NUM.map(r => parseFloat(r.str)),
-  T`true`.map(() => true),
-  T`false`.map(() => false),
-  T`null`.map(() => null),
-  Forward(() => Array),
-  Forward(() => Obj)
-)
+export namespace JsonWithResult {
+  export const Json: Rule<any> = Either(
+    TK.STR.map(r => r.str.slice(1, -1)),
+    TK.NUM.map(r => parseFloat(r.str)),
+    T`true`.map(() => true),
+    T`false`.map(() => false),
+    T`null`.map(() => null),
+    Forward(() => Array),
+    Forward(() => Obj)
+  )
 
-const Array = T`[ ${SeparatedBy(T`,`, Json)} ]`
+  const Array = T`[ ${SeparatedBy(T`,`, Json)} ]`
 
-const Prop = Seq(
-  { key:     TK.STR.map(m => m.str.slice(1, -1)) },
-           T`:`,
-  { value:   Json }
-)
+  const Prop = Seq(
+    { key:     TK.STR.map(m => m.str.slice(1, -1)) },
+             T`:`,
+    { value:   Json }
+  )
 
-const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
-.map(function ObjRes(r) {
-  var res = {} as any
-  for (var i = 0, l = r.length; i < l; i++) {
-    var item = r[i]
-    res[item.key] = item.value
-  }
-  return res
-})
+  const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
+  .map(function ObjRes(r) {
+    var res = {} as any
+    for (var i = 0, l = r.length; i < l; i++) {
+      var item = r[i]
+      res[item.key] = item.value
+    }
+    return res
+  })
+}
+
+export namespace JsonNoRes {
+  export const Json: Rule<any> = Either(
+    TK.STR,
+    TK.NUM,
+    T`true`,
+    T`false`,
+    T`null`,
+    Forward(() => Array),
+    Forward(() => Obj)
+  )
+
+  const Array = T`[ ${SeparatedBy(T`,`, Json)} ]`
+
+  const Prop = Seq(
+    { key:     TK.STR },
+             T`:`,
+    { value:   Json }
+  )
+
+  const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
+
+}
+
 
 
 const one = require('./1K_json').json_sample1k
 
 var tokens = TK.tokenize(one)!
-console.log(Json.parse(tokens, 0).res)
+console.log(JsonWithResult.Json.parse(tokens, 0).res)
 
 
 import { Suite } from 'benchmark'
@@ -53,9 +79,14 @@ s.add(function Json() {
   JSON.parse(one)
 })
 
-s.add(function JsonParse() {
+s.add(function JsonRes() {
   TK.tokenize(one, { forget_skips: true })!
-  Json.parse(tokens, 0)
+  JsonWithResult.Json.parse(tokens, 0)
+})
+
+s.add(function JsonNoResult() {
+  TK.tokenize(one, { forget_skips: true })!
+  JsonNoRes.Json.parse(tokens, 0)
 })
 
 s.run()

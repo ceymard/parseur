@@ -30,8 +30,12 @@ export function Res<T>(res: T, pos: number) {
   return new ParseResult(res, pos)
 }
 
-export namespace Res {
-  export var max_res: ParseResult<any> | null = null
+
+export class Context {
+  errors: any[] = []
+
+  furthest_token: Token | undefined
+  furthest_pos: number | undefined
 }
 
 
@@ -40,7 +44,7 @@ export namespace Res {
  */
 export class Token {
   public constructor(
-    public def: TokenDef,
+    public def: TokenDef<any>,
     public str: string,
     public is_skip: boolean,
     public line: number,
@@ -53,14 +57,14 @@ export class Token {
 // The tokenizer should be able to operate on a stream to create a token stream
 // Also, the rules should be able to use next() or anext() depending on whether they
 // want to parse synchronously or asynchronously
-export class Parseur {
+export class Parseur<C extends Context = Context> {
 
-  noaccel_token_defs = [] as TokenDef[]
-  token_defs: TokenDef[] = []
-  str_tokens = new Map<string, TokenDef>()
+  noaccel_token_defs = [] as TokenDef<C>[]
+  token_defs: TokenDef<C>[] = []
+  str_tokens = new Map<string, TokenDef<C>>()
 
   // Accelerator for characters
-  token_table: (TokenDef[] | null)[] = new Array(256).fill(null)
+  token_table: (TokenDef<C>[] | null)[] = new Array(256).fill(null)
 
   constructor() {
     this.S = this.S.bind(this)
@@ -79,7 +83,7 @@ export class Parseur {
     // All the regexp we handle are sticky ones.
 
     var reg = typeof def === 'string' ? def : new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
-    var tdef = new TokenDef(reg, false)
+    var tdef = new TokenDef<C>(reg, false)
     var added: boolean = false
 
     const add_to_ttable = (code: number) => {
@@ -192,12 +196,12 @@ export class Parseur {
     return res
   }
 
-  parse(input: string, rule: Rule<any>) {
+  parse(input: string, rule: Rule<any, C>) {
     var tokens = this.tokenize(input, { enable_line_counts: true, forget_skips: true })
-    Res.max_res = null
     // console.log('??')
     if (tokens) {
-      var res = rule.parse(tokens, 0)
+      const ctx = new Context()
+      var res = rule.parse(tokens, 0, ctx) // FIXME
 
       var failed = true
       if (res !== NoMatch) {
@@ -209,7 +213,7 @@ export class Parseur {
 
       if (res === NoMatch || failed) {
         // console.log('Match failed')
-        return { status: 'nok', max_res: Res.max_res, tokens }
+        return { status: 'nok', max_token: ctx.furthest_token, max_pos: ctx.furthest_pos, tokens }
         // console.log(Res.max_res)
       } else {
         return { status: 'ok', result: res.res }
@@ -221,10 +225,10 @@ export class Parseur {
 
   auto_create_tokens = true
 
-  S(tpl: TemplateStringsArray): Rule<string>
-  S<T>(tpl: TemplateStringsArray, rule: Rule<T>): Rule<T>
-  S<R extends Rule<any>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<{[K in keyof R]: Result<R[K]>}>
-  S<R extends Rule<any>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any> {
+  S(tpl: TemplateStringsArray): Rule<string, C>
+  S<T>(tpl: TemplateStringsArray, rule: Rule<T, C>): Rule<T, C>
+  S<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<{[K in keyof R]: Result<R[K]>}, C>
+  S<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any, C> {
     const get_tkdef = (token: string) => {
       var def = this.str_tokens.get(token)
       if (!def && !this.auto_create_tokens) throw new Error(`No token defined for '${token}'`)
@@ -244,10 +248,10 @@ export class Parseur {
     }
 
     if (tpl.length === 1 && rules.length === 0 && !tpl[0].match(/[\s\n]/)) {
-      return get_tkdef(tpl[0]).map(tk => tk.str)
+      return get_tkdef(tpl[0]).then(tk => tk.str)
     }
 
-    var seq: Rule<any>[] = []
+    var seq: Rule<any, any>[] = []
     var in_res: boolean[] = []
     var single_res = rules.length === 1
 
@@ -264,7 +268,7 @@ export class Parseur {
       }
     }
 
-    class SRule extends Rule<any> {
+    class SRule extends Rule<any, any> {
 
       firstTokens(rset: RuleSet) {
         for (var r of seq) {
@@ -274,11 +278,11 @@ export class Parseur {
         }
       }
 
-      parse(input: Token[], pos: number) {
+      parse(input: Token[], pos: number, ctx: C) {
         var res: any[] = []
 
         for (var i = 0, l = seq.length; i < l; i++) {
-          var match = seq[i].parse(input, pos)
+          var match = seq[i].parse(input, pos, ctx)
           if (match === NoMatch) return NoMatch
           if (in_res[i]) res.push(match.res)
           pos = match.pos
@@ -303,22 +307,22 @@ export function escape(str: string) {
 }
 
 
-export type MapFn<T, U> = (res: T, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U>
+export type ThenFn<T, U, C extends Context> = (res: T, ctx: C, input: Token[], pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U, C>
 
 
 /**
  *
  */
-export type Result<T> = T extends Rule<infer U> ? U : never
+export type Result<T> = T extends Rule<infer U, any> ? U : never
 
 
-export class RuleSet extends Set<Rule<any>> {
-  extend(r: Rule<any>): this {
+export class RuleSet extends Set<Rule<any, any>> {
+  extend(r: Rule<any, any>): this {
     if (this.has(r)) throw new Error(`Recursive rule`)
     return new (this.constructor as any)(this).add(r)
   }
 
-  addToken(t: TokenDef) {
+  addToken(t: TokenDef<any>) {
     for (var s of this) {
       s.first_tokens.add(t)
     }
@@ -328,27 +332,27 @@ export class RuleSet extends Set<Rule<any>> {
 /**
  * A rule is given a chance to init before it parses.
  */
-export abstract class Rule<T> {
+export abstract class Rule<T, C extends Context = Context> {
 
-  first_tokens = new Set<TokenDef>()
-  get startTokenDebug() { return [...this.first_tokens].map(t => t._regex) }
+  first_tokens = new Set<TokenDef<C>>()
+  get startTokenDebug(): (string | RegExp)[] { return [...this.first_tokens].map(t => t._regex) }
 
   firstTokens(rset: RuleSet) {
     throw new Error(`No first tokens`)
   }
 
-  abstract parse(input: Token[], pos: number): NoMatch | ParseResult<T>
+  abstract parse(input: Token[], pos: number, ctx: C): NoMatch | ParseResult<T>
 
   _name = ''
   _build_name: null | (() => string) = null
 
-  map<U>(fn: MapFn<T, U>): Rule<U> {
-    return new MapRule(this, fn)
+  then<U>(fn: ThenFn<T, U, C>): Rule<U, C> {
+    return new ThenRule(this, fn)
   }
 
-  tap(fn: (res: T, input: Token[], pos: number, start: number) => any) {
-    return this.map((res, input, pos, start) => {
-      fn(res, input, pos, start)
+  tap(fn: (res: T, ctx: C, input: Token[], pos: number, start: number) => any) {
+    return this.then((res, ctx, input, pos, start) => {
+      fn(res, ctx, input, pos, start)
       return res
     })
   }
@@ -370,28 +374,28 @@ export abstract class Rule<T> {
 }
 
 
-export class MapRule<T, U> extends Rule<U> {
-  constructor(public rule: Rule<T>, public fn: MapFn<T, U>) { super() }
+export class ThenRule<T, U, C extends Context = Context> extends Rule<U, C> {
+  constructor(public rule: Rule<T, C>, public fn: ThenFn<T, U, C>) { super() }
 
   firstTokens(rset: RuleSet) {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number) {
-    var res = this.rule.parse(input, pos)
+  parse(input: Token[], pos: number, ctx: C) {
+    var res = this.rule.parse(input, pos, ctx)
     if (res === NoMatch) return NoMatch
-    var res2 = this.fn(res.res, input, res.pos, pos)
+    var res2 = this.fn(res.res, ctx, input, res.pos, pos)
     if (res2 === NoMatch) return NoMatch
     if (res2 instanceof ParseResult) return res2
-    if (res2 instanceof Rule) return res2.parse(input, res.pos)
+    if (res2 instanceof Rule) return res2.parse(input, res.pos, ctx)
     return Res(res2, res.pos)
   }
 }
 
 
-export class TokenDef extends Rule<Token> {
+export class TokenDef<C extends Context> extends Rule<Token, C> {
 
-  first_tokens = new Set<TokenDef>().add(this)
+  first_tokens = new Set<TokenDef<C>>().add(this)
 
   constructor(
     public _regex: RegExp | string,
@@ -404,25 +408,24 @@ export class TokenDef extends Rule<Token> {
     rset.addToken(this)
   }
 
-  derive_map?: Map<string, TokenDef>
-  derive(derived: string, tokenizer: Parseur): TokenDef {
+  derive_map?: Map<string, TokenDef<C>>
+  derive(derived: string, tokenizer: Parseur<C>): TokenDef<C> {
     if (!this.derive_map) this.derive_map = new Map()
-    var tkd = new TokenDef(derived, this._skip)
+    var tkd = new TokenDef<C>(derived, this._skip)
     this.derive_map.set(derived, tkd)
     tokenizer.str_tokens.set(derived, tkd)
     return tkd
   }
 
-  parse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number, ctx: C) {
     var next: Token | undefined
     while ((next = input[pos++])) {
       if (next.def === this) {
         var r = Res(next, pos)
-        var max = Res.max_res
-        if (!max) Res.max_res = r
-        else if (max && r.pos > max.pos) {
-          Res.max_res = r
-          if (DEBUG) r.debug = DEBUG_STACK
+        var max_pos = ctx.furthest_pos
+        if (max_pos == undefined || max_pos < pos) {
+          ctx.furthest_pos = pos
+          ctx.furthest_token = next
         }
         return  r
       }
@@ -431,10 +434,10 @@ export class TokenDef extends Rule<Token> {
     return NoMatch
   }
 
-  as(str: RegExp): Rule<RegExpExecArray>
-  as(str: string): Rule<string>
-  as(str: string | RegExp): Rule<string | RegExpExecArray> {
-    return this.map(res => {
+  as(str: RegExp): Rule<RegExpExecArray, C>
+  as(str: string): Rule<string, C>
+  as(str: string | RegExp): Rule<string | RegExpExecArray, C> {
+    return this.then(res => {
       var match = res.str[0]
       if (typeof str === 'string') {
         return match === str ? match : NoMatch
@@ -452,16 +455,16 @@ export class TokenDef extends Rule<Token> {
 }
 
 
-export class OptRule<T> extends Rule<T | undefined> {
+export class OptRule<T, C extends Context> extends Rule<T | undefined, C> {
 
-  constructor(public rule: Rule<T>) { super() }
+  constructor(public rule: Rule<T, C>) { super() }
 
   firstTokens(rset: RuleSet) {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number) {
-    var res = this.rule.parse(input, pos)
+  parse(input: Token[], pos: number, ctx: C) {
+    var res = this.rule.parse(input, pos, ctx)
     if (res === NoMatch) return Res(undefined, pos)
     return res
   }
@@ -469,11 +472,11 @@ export class OptRule<T> extends Rule<T | undefined> {
 }
 
 
-export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rules]: Result<Rules[K]>}[number]> {
+export class EitherRule<Rules extends Rule<any, C>[], C extends Context> extends Rule<{[K in keyof Rules]: Result<Rules[K]>}[number], C> {
 
   constructor(public rules: Rules) { super() }
 
-  rulemap = new Map<TokenDef, Rule<any>[]>()
+  rulemap = new Map<TokenDef<C>, Rule<any, C>[]>()
   can_optimize = true
   can_skip = true
 
@@ -483,7 +486,7 @@ export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rul
     }
   }
 
-  parse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number, ctx: C) {
     this.parse = this.doParse
     var rs = new RuleSet()
     this.firstTokens(rs)
@@ -499,10 +502,10 @@ export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rul
       }
     }
 
-    return this.doParse(input, pos)
+    return this.doParse(input, pos, ctx)
   }
 
-  doParse(input: Token[], pos: number) {
+  doParse(input: Token[], pos: number, ctx: C) {
     var tk: Token | undefined
 
     if (this.can_skip) {
@@ -516,7 +519,7 @@ export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rul
         if (_rules) {
           for (var i = 0, l = _rules.length; i < l; i++) {
             var rule = _rules[i]
-            var res = rule.parse(input, pos)
+            var res = rule.parse(input, pos, ctx)
             if (res !== NoMatch) return res
           }
         }
@@ -528,7 +531,7 @@ export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rul
 
     for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
       var rule = rules[i]
-      var res = rule.parse(input, pos)
+      var res = rule.parse(input, pos, ctx)
       if (res !== NoMatch) return res
     }
     return NoMatch
@@ -540,14 +543,14 @@ export class EitherRule<Rules extends Rule<any>[]> extends Rule<{[K in keyof Rul
 export type UnionToIntersection<U> =
   (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
 
-export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> extends Rule<UnionToIntersection<
-  {[K in keyof Rules]: [Rules[K]] extends [{[name: string]: Rule<any>}] ?
+export class SeqRule<Rules extends (Rule<any, C> | {[name: string]: Rule<any, C>})[], C extends Context> extends Rule<UnionToIntersection<
+  {[K in keyof Rules]: [Rules[K]] extends [{[name: string]: Rule<any, C>}] ?
     {[K2 in keyof Rules[K]]: Result<Rules[K][K2]>}
     : never
   }[number]
-  > & {}> {
+  > & {}, C> {
 
-  real_rules: Rule<any>[] = []
+  real_rules: Rule<any, C>[] = []
   names: (string | null)[] = []
 
   constructor(public rules: Rules) {
@@ -574,14 +577,14 @@ export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> 
     }
   }
 
-  parse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number, ctx: C) {
     var res = {} as any
     var rules = this.real_rules
     var names = this.names
     for (var i = 0, l = rules.length; i < l; i++) {
       var rule = rules[i]
       var key = names[i]
-      var match = rule.parse(input, pos)
+      var match = rule.parse(input, pos, ctx)
       // console.log(key, match, entries[i][1])
       if (match === NoMatch) return NoMatch
       pos = match.pos
@@ -593,20 +596,20 @@ export class SeqRule<Rules extends (Rule<any> | {[name: string]: Rule<any>})[]> 
 }
 
 
-export class RepeatRule<T> extends Rule<T[]> {
-  public constructor(public rule: Rule<T>, public min?: number, public max?: number) { super() }
+export class RepeatRule<T, C extends Context> extends Rule<T[], C> {
+  public constructor(public rule: Rule<T, C>, public min?: number, public max?: number) { super() }
 
   firstTokens(rset: RuleSet) {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number, ctx: C) {
     var res: T[] = []
     var rres: ParseResult<any> | NoMatch
     var rule = this.rule
     var min = this.min
     var max = this.max
-    while ((rres = rule.parse(input, pos)) !== NoMatch) {
+    while ((rres = rule.parse(input, pos, ctx)) !== NoMatch) {
       res.push(rres.res)
       pos = rres.pos
       if (max != null && res.length >= max) break
@@ -617,34 +620,34 @@ export class RepeatRule<T> extends Rule<T[]> {
 }
 
 
-export class NotRule extends Rule<null> {
-  constructor(public rule: Rule<any>) { super() }
+export class NotRule<C extends Context> extends Rule<null, C> {
+  constructor(public rule: Rule<any, C>) { super() }
 
   firstTokens() {
     // Does nothing, because it *does not* want
   }
 
-  parse(input: Token[], pos: number) {
-    var res = this.rule.parse(input, pos)
+  parse(input: Token[], pos: number, ctx: C) {
+    var res = this.rule.parse(input, pos, ctx)
     if (res === NoMatch) return Res(null, pos)
     return NoMatch
   }
 }
 
 
-export class ForwardRule<T> extends Rule<T> {
-  constructor(public rulefn: () => Rule<T>) { super() }
+export class ForwardRule<T, C extends Context> extends Rule<T, C> {
+  constructor(public rulefn: () => Rule<T, C>) { super() }
 
-  rule?: Rule<T>
+  rule?: Rule<T, C>
 
   firstTokens(rset: RuleSet) {
     this.init()
     this.rule!.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number): ParseResult<T> | NoMatch {
+  parse(input: Token[], pos: number, ctx: C): ParseResult<T> | NoMatch {
     this.init()
-    return this.parse(input, pos)
+    return this.parse(input, pos, ctx)
   }
 
   init() {
@@ -655,11 +658,11 @@ export class ForwardRule<T> extends Rule<T> {
 }
 
 
-export class SeparatedByRule<T> extends Rule<T[]> {
+export class SeparatedByRule<T, C extends Context> extends Rule<T[], C> {
   leading = false
   trailing = false
 
-  constructor(public sep: Rule<any>, public rule: Rule<T>, opts?: { leading?: boolean, trailing?: boolean}) {
+  constructor(public sep: Rule<any, C>, public rule: Rule<T, C>, opts?: { leading?: boolean, trailing?: boolean}) {
     super()
     this.leading = !!opts?.leading
     this.trailing = !!opts?.trailing
@@ -671,24 +674,24 @@ export class SeparatedByRule<T> extends Rule<T[]> {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number, ctx: C) {
     const sep = this.sep
     const rule = this.rule
     const res: T[] = []
 
     if (this.leading) {
-      var lres = sep.parse(input, pos)
+      var lres = sep.parse(input, pos, ctx)
       if (lres !== NoMatch) pos = lres.pos
     }
 
     var at_sep = false
     while (true) {
-      var rres = rule.parse(input, pos)
+      var rres = rule.parse(input, pos, ctx)
       if (rres === NoMatch) { at_sep = false; break }
       res.push(rres.res)
       pos = rres.pos
 
-      var sres = sep.parse(input, pos)
+      var sres = sep.parse(input, pos, ctx)
       if (sres === NoMatch) { at_sep = true; break }
       pos = sres.pos
     }
@@ -711,12 +714,12 @@ export namespace TdopResult {
 }
 
 
-export class TdopOperatorRule<T> extends Rule<T> {
+export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
   rules: any[] = []
-  _nuds: Rule<any>[] = []
-  nuds!: Rule<TdopResult<T>>
-  _leds: Rule<any>[] = []
-  leds!: Rule<TdopResult<T>>
+  _nuds: Rule<any, C>[] = []
+  nuds!: Rule<TdopResult<T>, C>
+  _leds: Rule<any, C>[] = []
+  leds!: Rule<TdopResult<T>, C>
 
   current_build_level = 1000
 
@@ -725,7 +728,7 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return this
   }
 
-  constructor(public terminal: Rule<T>) { super() }
+  constructor(public terminal: Rule<T, C>) { super() }
 
   firstTokens(rset: RuleSet) {
     this.init()
@@ -734,24 +737,24 @@ export class TdopOperatorRule<T> extends Rule<T> {
 
   init() {
     if (this.nuds) return
-    this.nuds = new EitherRule([...this._nuds, this.terminal.map(t => TdopResult.create({value: t}))]).setName('Nuds')
-    this.leds = new EitherRule(this._leds).setName('Leds')
+    this.nuds = new EitherRule<Rule<TdopResult<T>, C>[], C>([...this._nuds, this.terminal.then(t => TdopResult.create({value: t}))]).setName('Nuds')
+    this.leds = new EitherRule<Rule<TdopResult<T>, C>[], C>(this._leds).setName('Leds')
   }
 
-  parse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number, ctx: C) {
     this.init()
     this.parse = this.doParse
-    return this.doParse(input, pos)
+    return this.doParse(input, pos, ctx)
   }
 
-  doParse(input: Token[], pos: number) {
+  doParse(input: Token[], pos: number, ctx: C) {
     const nuds = this.nuds
     const leds = this.leds
 
     // var cached_op: TdopResult<T> | undefined
 
     function expression(rbp: number): T | NoMatch {
-      var leftp = nuds.parse(input, pos)
+      var leftp = nuds.parse(input, pos, ctx)
       if (leftp === NoMatch) return NoMatch
       var leftm = leftp.res
       pos = leftp.pos
@@ -765,7 +768,7 @@ export class TdopOperatorRule<T> extends Rule<T> {
       }
       if (left === NoMatch) return NoMatch
 
-      var op = leds.parse(input, pos)
+      var op = leds.parse(input, pos, ctx)
       if (op === NoMatch) return left
       var opm = op.res
       // cached_op = opm
@@ -785,7 +788,7 @@ export class TdopOperatorRule<T> extends Rule<T> {
 
         // first try to get the cached value.
 
-        var op = leds.parse(input, pos)
+        var op = leds.parse(input, pos, ctx)
         if (op === NoMatch) {
           return left
         }
@@ -800,9 +803,9 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return Res(res, pos)
   }
 
-  prefix<R>(rule: Rule<R>, fn: (op: R, right: T) => T | NoMatch) {
+  prefix<R>(rule: Rule<R, C>, fn: (op: R, right: T) => T | NoMatch) {
     var power = this.current_build_level
-    var nr = rule.map(r => TdopResult.create<T>({
+    var nr = rule.then(r => TdopResult.create<T>({
       nud: expr => {
         var e = expr(power)
         if (e === NoMatch) return e
@@ -813,9 +816,9 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return this
   }
 
-  suffix<R>(rule: Rule<R>, fn: (op: R, left: T) => T | NoMatch) {
+  suffix<R>(rule: Rule<R, C>, fn: (op: R, left: T) => T | NoMatch) {
     var power = this.current_build_level
-    var lr = rule.map(r => TdopResult.create<T>({
+    var lr = rule.then(r => TdopResult.create<T>({
       lbp: power,
       led(left, expr) {
         return fn(r, left)
@@ -825,9 +828,9 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return this
   }
 
-  binary<R>(rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  binary<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
     var power = this.current_build_level
-    var lr = rule.map(r => TdopResult.create<T>({
+    var lr = rule.then(r => TdopResult.create<T>({
       lbp: power,
       led(left, expr) {
         var right = expr(power)
@@ -839,9 +842,9 @@ export class TdopOperatorRule<T> extends Rule<T> {
     return this
   }
 
-  binaryRight<R>(rule: Rule<R>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  binaryRight<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
     var power = this.current_build_level
-    var lr = rule.map(r => TdopResult.create<T>({
+    var lr = rule.then(r => TdopResult.create<T>({
       lbp: power,
       led(left, expr) {
         var right = expr(power - 0.5)
@@ -856,10 +859,10 @@ export class TdopOperatorRule<T> extends Rule<T> {
 }
 
 
-export class RecOperatorRule<T> extends Rule<T> {
-  build_expr: ((upper_level: Rule<T>) => Rule<T>)[] = []
-  public constructor(public terminal: Rule<T>) { super() }
-  expr: Rule<T> | undefined
+export class RecOperatorRule<T, C extends Context> extends Rule<T, C> {
+  build_expr: ((upper_level: Rule<T, C>) => Rule<T, C>)[] = []
+  public constructor(public terminal: Rule<T, C>) { super() }
+  expr: Rule<T, C> | undefined
 
   firstTokens(rset: RuleSet) {
     this.init()
@@ -872,46 +875,46 @@ export class RecOperatorRule<T> extends Rule<T> {
     this.parse = expr.parse.bind(expr)
   }
 
-  parse(input: Token[], pos: number) {
+  parse(input: Token[], pos: number, ctx: C) {
     this.init()
-    return this.expr!.parse(input, pos)
+    return this.expr!.parse(input, pos, ctx)
   }
 
-  Binary<R>(op: Rule<R>, fn: (op: R, left: T, right: T) => T) {
+  Binary<R>(op: Rule<R, C>, fn: (op: R, left: T, right: T) => T) {
     this.build_expr.push(upper => Seq(
       { upper },
       { rest: Repeat(Seq({ op, upper })) }
-    ).map(r => r.rest.reduce((acc, item) => fn(item.op, acc, item.upper), r.upper) ))
+    ).then(r => r.rest.reduce((acc, item) => fn(item.op, acc, item.upper), r.upper) ))
     return this
   }
 
-  BinaryRight<R>(op: Rule<R>, fn: (op: R, left: T, right: T) => T) {
+  BinaryRight<R>(op: Rule<R, C>, fn: (op: R, left: T, right: T) => T) {
     this.build_expr.push(upper => Seq(
       { rest: Repeat(Seq({ upper, op })) },
       { upper },
-    ).map(r => r.rest.reduceRight((acc, item) => fn(item.op, item.upper, acc), r.upper) ))
+    ).then(r => r.rest.reduceRight((acc, item) => fn(item.op, item.upper, acc), r.upper) ))
     return this
   }
 
-  Prefix<R>(op: Rule<R>, fn: (op: R, right: T) => T) {
-    this.build_expr.push(upper => Seq({ op: Opt(op) }, { upper }).map(r => r.op != undefined ? fn(r.op, r.upper) : r.upper))
+  Prefix<R>(op: Rule<R, C>, fn: (op: R, right: T) => T) {
+    this.build_expr.push(upper => Seq({ op: Opt(op) }, { upper }).then(r => r.op != undefined ? fn(r.op, r.upper) : r.upper))
     return this
   }
 
-  Suffix<R>(op: Rule<R>, fn: (op: R, left: T) => T) {
-    this.build_expr.push(upper => Seq({ upper }, { op: Opt(op) }).map(r => r.op != undefined ? fn(r.op, r.upper) : r.upper))
+  Suffix<R>(op: Rule<R, C>, fn: (op: R, left: T) => T) {
+    this.build_expr.push(upper => Seq({ upper }, { op: Opt(op) }).then(r => r.op != undefined ? fn(r.op, r.upper) : r.upper))
     return this
   }
 }
 
 /////////////////////////////
 
-export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...seq: T): Rule<UnionToIntersection<
-  {[K in keyof T]: [T[K]] extends [{[name: string]: Rule<any>}] ?
+export function Seq<T extends (Rule<any, C> | {[name: string]: Rule<any, C>})[], C extends Context>(...seq: T): Rule<UnionToIntersection<
+  {[K in keyof T]: [T[K]] extends [{[name: string]: Rule<any, C>}] ?
     {[K2 in keyof T[K]]: Result<T[K][K2]>}
     : never
   }[number]
-> & {}> {
+> & {}, C> {
   return new SeqRule(seq)
 }
 
@@ -922,7 +925,7 @@ export function Seq<T extends (Rule<any> | {[name: string]: Rule<any>})[]>(...se
  *
  * Most rules should be able to be run once before calling their actual parse methods.
  */
-export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number]> {
+export function Either<T extends Rule<any, C>[], C extends Context>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number], C> {
   return new EitherRule(rules)
 }
 
@@ -930,7 +933,7 @@ export function Either<T extends Rule<any>[]>(...rules: T): Rule<{[K in keyof T]
 /**
  *
  */
-export function Repeat<R extends Rule<any>>(rule: R, opts?: { min?: number, max?: number }): Rule<Result<R>[]> {
+export function Repeat<R extends Rule<any, C>, C extends Context>(rule: R, opts?: { min?: number, max?: number }): Rule<Result<R>[], C> {
   return new RepeatRule(rule, opts?.min, opts?.max)
 }
 
@@ -938,7 +941,7 @@ export function Repeat<R extends Rule<any>>(rule: R, opts?: { min?: number, max?
 /**
  *
  */
-export function Opt<T>(rule: Rule<T>): Rule<T | undefined> {
+export function Opt<T, C extends Context>(rule: Rule<T, C>): Rule<T | undefined, C> {
   return new OptRule(rule)
 }
 
@@ -946,12 +949,12 @@ export function Opt<T>(rule: Rule<T>): Rule<T | undefined> {
 /**
  *
  */
-export function Not(rule: Rule<any>): Rule<null> {
+export function Not<C extends Context>(rule: Rule<any, C>): Rule<null, C> {
   return new NotRule(rule)
 }
 
 
-export const Any = new class AnyRule extends TokenDef {
+export const Any = new class AnyRule extends TokenDef<any> {
 
   constructor() { super('!any!', false) }
 
@@ -963,7 +966,7 @@ export const Any = new class AnyRule extends TokenDef {
 }
 
 
-export const Eof = new class EOF extends Rule<null> {
+export const Eof = new class EOF extends Rule<null, any> {
   firstTokens() {
     // do nothing
   }
@@ -975,21 +978,21 @@ export const Eof = new class EOF extends Rule<null> {
 }
 
 
-export function Forward<T>(rulefn: () => Rule<T>) {
+export function Forward<T, C extends Context>(rulefn: () => Rule<T, C>) {
   return new ForwardRule(rulefn)
 }
 
 
-export function SeparatedBy<T>(sep: Rule<any>, rule: Rule<T>, opts?: {trailing?: boolean, leading?: boolean}) {
+export function SeparatedBy<T, C extends Context>(sep: Rule<any, C>, rule: Rule<T, C>, opts?: {trailing?: boolean, leading?: boolean}) {
   return new SeparatedByRule(sep, rule, opts)
 }
 
 
-export function TdopOperator<T>(terminal: Rule<T>) {
+export function TdopOperator<T, C extends Context>(terminal: Rule<T, C>) {
   return new TdopOperatorRule(terminal)
 }
 
 
-export function RecOperator<T>(terminal: Rule<T>) {
+export function RecOperator<T, C extends Context>(terminal: Rule<T, C>) {
   return new RecOperatorRule(terminal)
 }

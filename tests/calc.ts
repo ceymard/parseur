@@ -1,4 +1,4 @@
-import { Parseur, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator, Eof } from '../index'
+import { Parseur, Either, Forward, TdopOperator, Rule, Seq, Repeat, RecOperator, Eof, Context } from '../index'
 
 const tk = new Parseur()
 const NUM =   tk.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789') //.map(r => parseFloat(r.match[0])),
@@ -9,7 +9,7 @@ const S = tk.S.bind(tk)
 export namespace CalcOp {
 
   const Terminal: Rule<number> = Either(
-    NUM.map(n => parseFloat(n.str)),
+    NUM.then(n => parseFloat(n.str)),
     S`( ${Forward(() => Expression)} )`,
   ).setName('Op Terminal')
 
@@ -24,7 +24,7 @@ export namespace CalcOp {
     .binary(S`+`, (_, left, right) => left + right)
     .binary(S`-`, (_, left, right) => left - right)
 
-  export const TopLevel = Seq({expr: Expression}, Eof).map(r => r.expr)
+  export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
 }
 
 // console.log(CalcOp.Expression._inited)
@@ -32,7 +32,7 @@ export namespace CalcOp {
 export namespace CalcRec {
 
   const Terminal = Either(
-    NUM.map(n => parseFloat(n.str)),
+    NUM.then(n => parseFloat(n.str)),
     S`( ${Forward(() => Expression)} )`,
   ).setName('Rec Terminal')
 
@@ -42,14 +42,14 @@ export namespace CalcRec {
     .Binary(Either(S`*`, S`/`).setName('Rec * /'), (op, left, right) => op === '*' ? left * right : left / right)
     .Binary(Either(S`+`, S`-`).setName('Rec + -'), (op, left, right) => op === '+' ? left + right : left - right)
 
-  export const TopLevel = Seq({expr: Expression}, Eof).map(r => r.expr)
+  export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
 }
 
 function parse(r: Rule<number>, input: string) {
   var tokens = tk.tokenize(input, { forget_skips: true, enable_line_counts: false })
   if (!tokens) throw new Error('could not parse')
   // console.log(tokens?.map(t => t.str).join(' '))
-  return r.parse(tokens, 0)
+  return r.parse(tokens, 0, new Context)
 }
 
 console.log(parse(CalcOp.TopLevel, '2 + 4'))

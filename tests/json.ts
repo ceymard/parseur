@@ -1,4 +1,4 @@
-import { Parseur, Seq, Either, Rule, Forward, SeparatedBy } from '../index'
+import { Parseur, Seq, Either, Rule, Forward, SeparatedBy, Context } from '../index'
 
 const TK = new class JsonTokenizer extends Parseur {
   // End with the regexps
@@ -11,11 +11,11 @@ const T = TK.S
 
 export namespace JsonWithResult {
   export const Json: Rule<any> = Either(
-    TK.STR.map(r => r.str.slice(1, -1)),
-    TK.NUM.map(r => parseFloat(r.str)),
-    T`true`.map(() => true),
-    T`false`.map(() => false),
-    T`null`.map(() => null),
+    TK.STR.then(r => r.str.slice(1, -1)),
+    TK.NUM.then(r => parseFloat(r.str)),
+    T`true`.then(() => true),
+    T`false`.then(() => false),
+    T`null`.then(() => null),
     Forward(() => Array),
     Forward(() => Obj)
   )
@@ -23,13 +23,13 @@ export namespace JsonWithResult {
   const Array = T`[ ${SeparatedBy(T`,`, Json)} ]`
 
   const Prop = Seq(
-    { key:     TK.STR.map(m => m.str.slice(1, -1)) },
+    { key:     TK.STR.then(m => m.str.slice(1, -1)) },
              T`:`,
     { value:   Json }
   )
 
   const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
-  .map(function ObjRes(r) {
+  .then(function ObjRes(r) {
     var res = {} as any
     for (var i = 0, l = r.length; i < l; i++) {
       var item = r[i]
@@ -67,7 +67,7 @@ export namespace JsonNoRes {
 const one = require('./1K_json').json_sample1k
 
 var tokens = TK.tokenize(one)!
-console.log(JsonWithResult.Json.parse(tokens, 0).res)
+console.log(JsonWithResult.Json.parse(tokens, 0, new Context()).res)
 
 
 import { Suite } from 'benchmark'
@@ -81,12 +81,12 @@ s.add(function Json() {
 
 s.add(function JsonRes() {
   TK.tokenize(one, { forget_skips: true })!
-  JsonWithResult.Json.parse(tokens, 0)
+  JsonWithResult.Json.parse(tokens, 0, new Context)
 })
 
 s.add(function JsonNoResult() {
   TK.tokenize(one, { forget_skips: true })!
-  JsonNoRes.Json.parse(tokens, 0)
+  JsonNoRes.Json.parse(tokens, 0, new Context)
 })
 
 s.run()

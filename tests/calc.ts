@@ -4,25 +4,25 @@ const tk = new Parseur()
 const NUM =   tk.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789') //.map(r => parseFloat(r.match[0])),
 // const WS =
 tk.token(/[\s\n]+/).skip()
-const S = tk.S.bind(tk)
+const P = tk.P
 
 export namespace CalcOp {
 
   const Terminal: Rule<number> = Either(
     NUM.then(n => parseFloat(n.str)),
-    S`( ${Forward(() => Expression)} )`,
+    P`( ${Forward(() => Expression)} )`,
   ).setName('Op Terminal')
 
   export const Expression: Rule<number> = TdopOperator(Terminal)
-    .prefix(S`-`, (_, left) => -left)
+    .prefix(P`-`, (_, left) => -left)
     .down
-    .binary(S`**`, (_, left, right) => Math.pow(left, right))
+    .binary(P`**`, (_, left, right) => Math.pow(left, right))
     .down
-    .binary(S`*`, (_, left, right) => left * right)
-    .binary(S`/`, (_, left, right) => left / right)
+    .binary(P`*`, (_, left, right) => left * right)
+    .binary(P`/`, (_, left, right) => left / right)
     .down
-    .binary(S`+`, (_, left, right) => left + right)
-    .binary(S`-`, (_, left, right) => left - right)
+    .binary(P`+`, (_, left, right) => left + right)
+    .binary(P`-`, (_, left, right) => left - right)
 
   export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
 }
@@ -33,14 +33,14 @@ export namespace CalcRec {
 
   const Terminal = Either(
     NUM.then(n => parseFloat(n.str)),
-    S`( ${Forward(() => Expression)} )`,
+    P`( ${Forward(() => Expression)} )`,
   ).setName('Rec Terminal')
 
   export const Expression: Rule<number> = RecOperator(Terminal)
-    .Prefix(S`-`, (_, right) => -right)
-    .Binary(S`**`, (_, left, right) => Math.pow(left, right))
-    .Binary(Either(S`*`, S`/`).setName('Rec * /'), (op, left, right) => op === '*' ? left * right : left / right)
-    .Binary(Either(S`+`, S`-`).setName('Rec + -'), (op, left, right) => op === '+' ? left + right : left - right)
+    .Prefix(P`-`, (_, right) => -right)
+    .Binary(P`**`, (_, left, right) => Math.pow(left, right))
+    .Binary(Either(P`*`, P`/`).setName('Rec * /'), (op, left, right) => op === '*' ? left * right : left / right)
+    .Binary(Either(P`+`, P`-`).setName('Rec + -'), (op, left, right) => op === '+' ? left + right : left - right)
 
   export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
 }

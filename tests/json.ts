@@ -7,28 +7,28 @@ const TK = new class JsonTokenizer extends Parseur {
   WHITESPACE = this.token(/(\/\/[^\n]*|[\s\n\t\r])+/, ' \t\n\r').skip()
 }
 
-const T = TK.S
+const P = TK.P
 
 export namespace JsonWithResult {
   export const Json: Rule<any> = Either(
     TK.STR.then(r => r.str.slice(1, -1)),
     TK.NUM.then(r => parseFloat(r.str)),
-    T`true`.then(() => true),
-    T`false`.then(() => false),
-    T`null`.then(() => null),
+    P`true`.then(() => true),
+    P`false`.then(() => false),
+    P`null`.then(() => null),
     Forward(() => Array),
     Forward(() => Obj)
   )
 
-  const Array = T`[ ${SeparatedBy(T`,`, Json)} ]`
+  const Array = P`[ ${SeparatedBy(P`,`, Json)} ]`
 
   const Prop = Seq(
     { key:     TK.STR.then(m => m.str.slice(1, -1)) },
-             T`:`,
+             P`:`,
     { value:   Json }
   )
 
-  const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
+  const Obj = P`{ ${SeparatedBy(P`,`, Prop)} }`
   .then(function ObjRes(r) {
     var res = {} as any
     for (var i = 0, l = r.length; i < l; i++) {
@@ -43,22 +43,22 @@ export namespace JsonNoRes {
   export const Json: Rule<any> = Either(
     TK.STR,
     TK.NUM,
-    T`true`,
-    T`false`,
-    T`null`,
+    P`true`,
+    P`false`,
+    P`null`,
     Forward(() => Array),
     Forward(() => Obj)
   )
 
-  const Array = T`[ ${SeparatedBy(T`,`, Json)} ]`
+  const Array = P`[ ${SeparatedBy(P`,`, Json)} ]`
 
   const Prop = Seq(
     { key:     TK.STR },
-             T`:`,
+             P`:`,
     { value:   Json }
   )
 
-  const Obj = T`{ ${SeparatedBy(T`,`, Prop)} }`
+  const Obj = P`{ ${SeparatedBy(P`,`, Prop)} }`
 
 }
 

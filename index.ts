@@ -70,7 +70,7 @@ export class Parseur<C extends Context = Context> {
   token_table: (TokenDef<C>[] | null)[] = new Array(256).fill(null)
 
   constructor() {
-    this.S = this.S.bind(this)
+    this.P = this.P.bind(this)
   }
 
   nameRules() {
@@ -228,10 +228,10 @@ export class Parseur<C extends Context = Context> {
 
   auto_create_tokens = true
 
-  S(tpl: TemplateStringsArray): Rule<string, C>
-  S<T>(tpl: TemplateStringsArray, rule: Rule<T, C>): Rule<T, C>
-  S<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<{[K in keyof R]: Result<R[K]>}, C>
-  S<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any, C> {
+  P(tpl: TemplateStringsArray): Rule<string, C>
+  P<T>(tpl: TemplateStringsArray, rule: Rule<T, C>): Rule<T, C>
+  P<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<{[K in keyof R]: Result<R[K]>}, C>
+  P<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any, C> {
     const get_tkdef = (token: string) => {
       var def = this.str_tokens.get(token)
       if (!def && !this.auto_create_tokens) throw new Error(`No token defined for '${token}'`)

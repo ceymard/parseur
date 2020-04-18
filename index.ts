@@ -57,6 +57,12 @@ export class Token {
 }
 
 
+export type TokenizerOptions = {
+  forget_skips?: boolean
+  enable_line_counts?: boolean
+}
+
+
 // The tokenizer should be able to operate on a stream to create a token stream
 // Also, the rules should be able to use next() or anext() depending on whether they
 // want to parse synchronously or asynchronously
@@ -115,7 +121,7 @@ export class Parseur<C extends Context = Context> {
     return tdef
   }
 
-  tokenize(input: string, opts?: { enable_line_counts?: boolean, forget_skips?: boolean }) {
+  tokenize(input: string, opts?: TokenizerOptions) {
     var res: Token[] = []
     var pos = 0
     var enable_line_counts = !!opts?.enable_line_counts
@@ -199,8 +205,8 @@ export class Parseur<C extends Context = Context> {
     return res
   }
 
-  parseRule(input: string, rule: Rule<any, C>, getctx: (input: Token[]) => C) {
-    var tokens = this.tokenize(input, { enable_line_counts: true, forget_skips: true })
+  parseRule(input: string, rule: Rule<any, C>, getctx: (input: Token[]) => C, opts?: TokenizerOptions) {
+    var tokens = this.tokenize(input, opts)
     // console.log('??')
     if (tokens) {
       const ctx = getctx(tokens)
@@ -630,7 +636,7 @@ export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, 
 
 
 export class RepeatRule<T, C extends Context> extends Rule<T[], C> {
-  public constructor(public rule: Rule<T, C>, public min?: number, public max?: number) { super() }
+  public constructor(public rule: Rule<T, C>, public min?: number, public max?: number, public times?: number) { super() }
 
   firstTokens(rset: RuleSet) {
     this.rule.firstTokens(rset.extend(this))
@@ -642,12 +648,14 @@ export class RepeatRule<T, C extends Context> extends Rule<T[], C> {
     var rule = this.rule
     var min = this.min
     var max = this.max
+    var times = this.times
     while ((rres = rule.parse(ctx, pos)) !== NoMatch) {
       res.push(rres.res)
       pos = rres.pos
       if (max != null && res.length >= max) break
     }
     if (min != null && res.length < min) return NoMatch
+    if (times != null && res.length !== times) return NoMatch
     return Res(res, pos)
   }
 }

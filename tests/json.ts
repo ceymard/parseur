@@ -1,3 +1,4 @@
+import { parser } from '../examples/json'
 import { Parseur, Seq, Either, Rule, Forward, SeparatedBy, Context } from '../index'
 
 const TK = new class JsonTokenizer extends Parseur {
@@ -9,35 +10,6 @@ const TK = new class JsonTokenizer extends Parseur {
 
 const P = TK.P
 
-export namespace JsonWithResult {
-  export const Json: Rule<any> = Either(
-    TK.STR.then(r => r.str.slice(1, -1)),
-    TK.NUM.then(r => parseFloat(r.str)),
-    P`true`.then(() => true),
-    P`false`.then(() => false),
-    P`null`.then(() => null),
-    Forward(() => Array),
-    Forward(() => Obj)
-  )
-
-  const Array = P`[ ${SeparatedBy(P`,`, Json)} ]`
-
-  const Prop = Seq(
-    { key:     TK.STR.then(m => m.str.slice(1, -1)) },
-             P`:`,
-    { value:   Json }
-  )
-
-  const Obj = P`{ ${SeparatedBy(P`,`, Prop)} }`
-  .then(function ObjRes(r) {
-    var res = {} as any
-    for (var i = 0, l = r.length; i < l; i++) {
-      var item = r[i]
-      res[item.key] = item.value
-    }
-    return res
-  })
-}
 
 export namespace JsonNoRes {
   export const Json: Rule<any> = Either(
@@ -66,8 +38,8 @@ export namespace JsonNoRes {
 
 const one = require('./1K_json').json_sample1k
 
-var tokens = TK.tokenize(one)!
-console.log(JsonWithResult.Json.parse(new Context(tokens)).res)
+// var tokens = TK.tokenize(one)!
+console.log(parser.parse(one).result)
 
 
 import { Suite } from 'benchmark'
@@ -80,8 +52,7 @@ s.add(function Json() {
 })
 
 s.add(function JsonRes() {
-  const tokens = TK.tokenize(one, { forget_skips: true })!
-  JsonWithResult.Json.parse(new Context(tokens))
+  parser.parse(one)
 })
 
 s.add(function JsonNoResult() {

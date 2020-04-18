@@ -40,12 +40,15 @@ class JsonParser extends Parseur {
   })
 
   parse(input: string) {
-    return this.parseRule(input, this.Json, input => new Context(input))
+    return this.parseRule(input, this.Json, input => new Context(input), {
+      enable_line_counts: false,
+      forget_skips: true
+    })
   }
 
 }
 
-const parser = new JsonParser()
+export const parser = new JsonParser()
 
 import { inspect } from 'util'
 function log(expr: string) {
@@ -56,4 +59,7 @@ function log(expr: string) {
 
   }
 }
-log(`{ "a": 23, "b": { "asdf": [1, 2, 3, null]}, "C": "some string" }`)
+
+if (process.mainModule === module) {
+  log(`{ "a": 23, "b": { "asdf": [1, 2, 3, null]}, "C": "some string" }`)
+}

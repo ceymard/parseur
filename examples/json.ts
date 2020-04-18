@@ -2,7 +2,9 @@ import { Parseur, Seq, Either, Rule, Forward, SeparatedBy, Context } from '../in
 
 var P: JsonParser['P']
 class JsonParser extends Parseur {
-  // End with the regexps
+  // P will make your life easier.
+  // It will create tokens on the fly for this parser, without even having to define them
+  // first, although you can if you really want to.
   __ = P = this.P
 
   STR =   this.token(/"(?:\\"|[^"])*"/, '"') //.map(r => r.match[0].slice(1, -1)),

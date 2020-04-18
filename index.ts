@@ -35,8 +35,8 @@ export class Context {
   errors: any[] = []
   // input: Token[] = []
 
-  furthest_token: Token | undefined
-  furthest_pos: number | undefined
+  max_token: Token | undefined
+  max_pos: number | undefined
 
   constructor(public input: Token[]) { }
 }
@@ -216,7 +216,7 @@ export class Parseur<C extends Context = Context> {
 
       if (res === NoMatch || failed) {
         // console.log('Match failed')
-        return { status: 'nok' as const, max_token: ctx.furthest_token, max_pos: ctx.furthest_pos, tokens }
+        return { status: 'nok' as const, max_token: ctx.max_token, max_pos: ctx.max_pos, tokens }
         // console.log(Res.max_res)
       } else {
         return { status: 'ok' as const, result: res.res }
@@ -426,10 +426,10 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
     while ((next = input[pos++])) {
       if (next.def === this) {
         var r = Res(next, pos)
-        var max_pos = ctx.furthest_pos
+        var max_pos = ctx.max_pos
         if (max_pos == undefined || max_pos < pos) {
-          ctx.furthest_pos = pos
-          ctx.furthest_token = next
+          ctx.max_pos = pos
+          ctx.max_token = next
         }
         return  r
       }

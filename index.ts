@@ -995,9 +995,7 @@ export const Any = new class AnyRule extends TokenDef<Context> {
   constructor() { super('!any!', false) }
 
   parse(ctx: Context, pos: number) {
-    var tok: Token | undefined
-    const input = ctx.input
-    while ((tok = input[pos], tok && tok.is_skip)) { pos++ }
+    var tok: Token | undefined = ctx.input[pos]
     return tok ? Res(tok, pos + 1) : NoMatch
   }
 }

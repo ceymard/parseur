@@ -146,6 +146,7 @@ export class Parseur<C extends Context = Context> {
         l = tkdefs.length
         tokendefs = tkdefs
       }
+      // console.log(tokendefs, accel, input[pos])
 
       for (var i = 0; i < l; i++) {
         var tkd = tokendefs[i]
@@ -162,6 +163,7 @@ export class Parseur<C extends Context = Context> {
         }
 
         if (match == undefined) continue
+        if (match === '') throw new Error(`Token definition '${tkd._regex}' produced an empty match`)
         // console.log(`'${match[0]}'`, reg, typeof match[0])
 
         if (enable_line_counts) {

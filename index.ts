@@ -212,15 +212,7 @@ export class Parseur<C extends Context = Context> {
       const ctx = getctx(tokens)
       var res = rule.parse(ctx, 0) // FIXME
 
-      var failed = true
-      if (res !== NoMatch) {
-        var pos = res.pos
-        var _tk: Token | undefined
-        while ((_tk = tokens[pos], _tk && _tk.is_skip)) { pos++ }
-        failed = !!_tk
-      }
-
-      if (res === NoMatch || failed) {
+      if (res === NoMatch) {
         // console.log('Match failed')
         return { status: 'nok' as const, max_token: ctx.max_token, max_pos: ctx.max_pos, tokens }
         // console.log(Res.max_res)
@@ -1017,7 +1009,10 @@ export const Eof = new class EOF extends Rule<null, Context> {
   }
 
   parse(ctx: Context, pos: number) {
-    if (pos >= ctx.input.length) return Res(null, pos)
+    var tk: Token | undefined
+    var input = ctx.input
+    while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
+    if (tk == undefined) return Res(null, pos)
     return NoMatch
   }
 }

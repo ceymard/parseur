@@ -238,8 +238,38 @@ export class Parseur<C extends Context = Context> {
 
   auto_create_tokens = true
 
-  P(tpl: TemplateStringsArray): Rule<string, C>
+  /**
+   * Return a TokenDef matching the provided string.
+   *
+   * First, it searches the already known string tokens and returns the matching TokenDef if found.
+   * Second, it searches the regexp tokens.
+   *  If this.auto_create_tokens is true, it auto creates a `derived` based on the regexp token.
+   *  Otherwise, it returns the original TokenDef which is `.then` where it performs a comparison.
+   * If no TokenDef was found and `this.auto_create_tokens` is true, it creates a new string token.
+   *
+   * Beware that no space checking is done, so putting space like in P`if then` will result in the creation
+   * of the `if then` token as is.
+   */
+  P(tpl: TemplateStringsArray): TokenDef<C>
+  /**
+   * When given a single rule in `${template args}`, produces the production of this rule.
+   * The text around the rule is trimmed and splitted by whitespace, and each bit of text is then
+   * mapped to TokenDefs following the rules stipulated in the string-only version of this method.
+   *
+   * ```typescript
+   * // there is no need to .then here, the production of ParenthesizedExpression just ignores
+   * // the ( and ) tokens in the result and directly gets the result of Expression.
+   * ParenthesizedExpression = this.P`( ${Expression} )`
+   * ```
+   */
   P<T>(tpl: TemplateStringsArray, rule: Rule<T, C>): Rule<T, C>
+  /**
+   * Produces the production of all the rules in `${template args}`, ignoring the result of the
+   * tokens that come before, between and after them.
+   *
+   * Tokens are returned/created after trimming the splitted by whitespace values of the strings
+   * just like for the one rule version and string only version of this method.
+   */
   P<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<{[K in keyof R]: Result<R[K]>}, C>
   P<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any, C> {
     const get_tkdef = (token: string) => {
@@ -250,7 +280,11 @@ export class Parseur<C extends Context = Context> {
         for (var tkdef of this.token_defs) {
           var sdef = tkdef._regex
           if (sdef instanceof RegExp && ((sdef.lastIndex = 0), sdef.test(token))) {
-            return tkdef.derive(token, this)
+            if (this.auto_create_tokens)
+              return tkdef.derive(token, this)
+            else {
+              return tkdef.as(token)
+            }
           }
         }
 
@@ -260,8 +294,10 @@ export class Parseur<C extends Context = Context> {
       return def
     }
 
-    if (tpl.length === 1 && rules.length === 0 && !tpl[0].match(/[\s\n]/)) {
-      return get_tkdef(tpl[0]).then(tk => tk.str)
+    if (tpl.length === 1 && rules.length === 0 && !tpl[0].match(/\s/)) {
+      var tpz = tpl[0].trim()
+      if (tpz.trim().match(/\s/)) throw new Error(`Do not include spaces in P single string calls`)
+      return get_tkdef(tpz)
     }
 
     var seq: Rule<any, any>[] = []
@@ -320,8 +356,8 @@ export function escape(str: string) {
 }
 
 
-export type ThenFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number) => U | NoMatch
-export type ThenResFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number) => NoMatch | ParseResult<U>
+export type ThenFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number, original_rule: Rule<T, C>) => U | NoMatch
+export type ThenResFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number, original_rule: Rule<T, C>) => NoMatch | ParseResult<U>
 
 
 /**
@@ -411,7 +447,7 @@ export class ThenRule<T, U, C extends Context = Context> extends Rule<U, C> {
   parse(ctx: C, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
     if (res === NoMatch) return res
-    var res2 = this.fn(res.value, ctx, res.pos, pos)
+    var res2 = this.fn(res.value, ctx, res.pos, pos, this.rule)
     if (res2 === NoMatch) return res2
     return ctx.res(res2, res.pos)
   }
@@ -428,7 +464,7 @@ export class ThenResRule<T, U, C extends Context = Context> extends Rule<U, C> {
   parse(ctx: C, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
     if (res === NoMatch) return res
-    return this.fn(res.value, ctx, res.pos, pos)
+    return this.fn(res.value, ctx, res.pos, pos, this.rule)
   }
 }
 
@@ -496,15 +532,15 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
 }
 
 
-export class OptRule<T, C extends Context> extends Rule<T | undefined, C> {
+export class OptRule<R extends Rule<any, any>> extends Rule<Result<R> | undefined, ContextOf<R>> {
 
-  constructor(public rule: Rule<T, C>) { super() }
+  constructor(public rule: R) { super() }
 
   firstTokens(rset: RuleSet) {
     this.rule.firstTokens(rset.extend(this))
   }
 
-  parse(ctx: C, pos: number = 0) {
+  parse(ctx: ContextOf<R>, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
     if (res === NoMatch) return ctx.res(undefined, pos)
     return res
@@ -513,11 +549,11 @@ export class OptRule<T, C extends Context> extends Rule<T | undefined, C> {
 }
 
 
-export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyof Rules]: Result<Rules[K]>}[number], SeqContext<Rules>> {
+export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyof Rules]: Result<Rules[K]>}[number], ContextOf<Rules>> {
 
   constructor(public rules: Rules) { super() }
 
-  rulemap = new Map<TokenDef<SeqContext<Rules>>, Rule<any, any>[]>()
+  rulemap = new Map<TokenDef<ContextOf<Rules>>, Rule<any, any>[]>()
   can_optimize = true
   can_skip = true
 
@@ -527,7 +563,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
     }
   }
 
-  parse(ctx: SeqContext<Rules>, pos: number = 0) {
+  parse(ctx: ContextOf<Rules>, pos: number = 0) {
     this.parse = this.doParse
     var rs = new RuleSet()
     this.firstTokens(rs)
@@ -546,7 +582,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
     return this.doParse(ctx, pos)
   }
 
-  doParse(ctx: SeqContext<Rules>, pos: number = 0) {
+  doParse(ctx: ContextOf<Rules>, pos: number = 0) {
     var tk: Token | undefined
 
     const input = ctx.input
@@ -592,7 +628,9 @@ export type SeqResult<T extends any[]> = {[K in keyof T]:
   : never
 }[number]
 
-export type SeqContext<T extends any[]> = {[K in keyof T]:
+export type ContextOf<T extends any[] | any> =
+  T extends Rule<any, infer C> ? C :
+  {[K in keyof T]:
   [T[K]] extends [{[name: string]: Rule<any, infer C>}] ?
     C
   : [T[K]] extends [Rule<any, infer C>] ?
@@ -600,9 +638,10 @@ export type SeqContext<T extends any[]> = {[K in keyof T]:
   : never
 }[number]
 
-export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]> extends Rule<UnionToIntersection<SeqResult<Rules>> & {}, SeqContext<Rules>> {
 
-  real_rules: Rule<any, SeqContext<Rules>>[] = []
+export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]> extends Rule<UnionToIntersection<SeqResult<Rules>> & {}, ContextOf<Rules>> {
+
+  real_rules: Rule<any, ContextOf<Rules>>[] = []
   names: (string | null)[] = []
 
   constructor(public rules: Rules) {
@@ -629,7 +668,7 @@ export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, 
     }
   }
 
-  parse(ctx: SeqContext<Rules>, pos: number = 0) {
+  parse(ctx: ContextOf<Rules>, pos: number = 0) {
     var res = {} as any
     var rules = this.real_rules
     var names = this.names
@@ -773,12 +812,12 @@ export namespace TdopResult {
 }
 
 
-export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
+export class TdopOperatorRule<R extends Rule<any, any>> extends Rule<Result<R>, ContextOf<R>> {
   rules: any[] = []
-  _nuds: Rule<any, C>[] = []
-  nuds!: Rule<TdopResult<T>, C>
-  _leds: Rule<any, C>[] = []
-  leds!: Rule<TdopResult<T>, C>
+  _nuds: Rule<TdopResult<Result<R>>, ContextOf<R>>[] = []
+  nuds!: Rule<TdopResult<Result<R>>, ContextOf<R>>
+  _leds: Rule<TdopResult<Result<R>>, ContextOf<R>>[] = []
+  leds!: Rule<TdopResult<Result<R>>, ContextOf<R>>
 
   current_build_level = 100000
 
@@ -787,7 +826,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return this
   }
 
-  constructor(public terminal: Rule<T, C>) { super() }
+  constructor(public terminal: R) { super() }
 
   firstTokens(rset: RuleSet) {
     this.init()
@@ -800,25 +839,25 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     this.leds = new EitherRule(this._leds).setName('Leds')
   }
 
-  parse(ctx: C, pos: number = 0) {
+  parse(ctx: ContextOf<R>, pos: number = 0) {
     this.init()
     this.parse = this.doParse
     return this.doParse(ctx, pos)
   }
 
-  doParse(ctx: C, pos: number = 0) {
+  doParse(ctx: ContextOf<R>, pos: number = 0) {
     const nuds = this.nuds
     const leds = this.leds
 
     // var cached_op: TdopResult<T> | undefined
 
-    const expression = (rbp: number): T | NoMatch => {
+    const expression = (rbp: number): Result<R> | NoMatch => {
       var leftp = nuds.parse(ctx, pos)
       if (leftp === NoMatch) return this.nomatch(ctx, pos)
       var leftm = leftp.value
       pos = leftp.pos
 
-      var left: T | NoMatch
+      var left: Result<R> | NoMatch
       if (leftm.value != undefined) {
         left = leftm.value
       } else {
@@ -837,7 +876,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
         // only advance if the operator matched the current level
         // pos = op.pos
         // if (!opm.led) return NoMatch
-        var opres = opm.led!(left, expression)
+        var opres = opm.led!(left as Result<R>, expression)
         if (opres === NoMatch) {
           return left
         }
@@ -862,9 +901,9 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return ctx.res(res, pos)
   }
 
-  Prefix<R>(rule: Rule<R, C>, fn: (op: R, right: T) => T | NoMatch) {
+  Prefix<R2>(rule: Rule<R2, ContextOf<R>>, fn: (op: R2, right: Result<R>) => Result<R> | NoMatch) {
     var power = this.current_build_level
-    var nr = rule.then(r => TdopResult.create<T>({
+    var nr = rule.then(r => TdopResult.create<Result<R>>({
       nud: expr => {
         var e = expr(power)
         if (e === NoMatch) return e
@@ -875,9 +914,9 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return this
   }
 
-  Suffix<R>(rule: Rule<R, C>, fn: (op: R, left: T) => T | NoMatch) {
+  Suffix<R2>(rule: Rule<R2, ContextOf<R>>, fn: (op: R2, left: Result<R>) => Result<R> | NoMatch) {
     var power = this.current_build_level
-    var lr = rule.then(r => TdopResult.create<T>({
+    var lr = rule.then(r => TdopResult.create<Result<R>>({
       lbp: power,
       led(left, expr) {
         return fn(r, left)
@@ -887,9 +926,9 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return this
   }
 
-  Binary<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  Binary<R2>(rule: Rule<R2, ContextOf<R>>, fn: (op: R2, left: Result<R>, right: Result<R>) => Result<R> | NoMatch) {
     var power = this.current_build_level
-    var lr = rule.then(r => TdopResult.create<T>({
+    var lr = rule.then(r => TdopResult.create<Result<R>>({
       lbp: power,
       led(left, expr) {
         var right = expr(power)
@@ -901,9 +940,9 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return this
   }
 
-  BinaryRight<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  BinaryRight<R2>(rule: Rule<R2, ContextOf<R>>, fn: (op: R2, left: Result<R>, right: Result<R>) => Result<R> | NoMatch) {
     var power = this.current_build_level
-    var lr = rule.then(r => TdopResult.create<T>({
+    var lr = rule.then(r => TdopResult.create<Result<R>>({
       lbp: power,
       led(left, expr) {
         var right = expr(power - 0.5)
@@ -984,7 +1023,7 @@ export class RecOperatorRule<T, C extends Context> extends Rule<T, C> {
  * )
  * ```
  */
-export function Seq<T extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]>(...seq: T) {
+export function Seq<Rules extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]>(...seq: Rules): Rule<UnionToIntersection<SeqResult<Rules>> & {}, ContextOf<Rules>> {
   return new SeqRule(seq)
 }
 
@@ -992,7 +1031,7 @@ export function Seq<T extends (Rule<any, any> | {[name: string]: Rule<any, any>}
 /**
  * Matches any rule provided to it, returning the result of the first one that does.
  */
-export function Either<T extends Rule<any, any>[]>(...rules: T) {
+export function Either<Rules extends Rule<any, any>[]>(...rules: Rules): Rule<{[K in keyof Rules]: Result<Rules[K]>}[number], ContextOf<Rules>> {
   return new EitherRule(rules)
 }
 
@@ -1001,7 +1040,7 @@ export function Either<T extends Rule<any, any>[]>(...rules: T) {
  * Tries to match the rule as many times as it can, returning an array of the results
  * once it cannot anymore.
  */
-export function Repeat<R extends Rule<any, C>, C extends Context>(rule: R, opts?: { min?: number, max?: number, times?: number }) {
+export function Repeat<R extends Rule<any, any>>(rule: R, opts?: { min?: number, max?: number, times?: number }): Rule<Result<R>[], ContextOf<R>> {
   return new RepeatRule(rule, opts?.min, opts?.max, opts?.times)
 }
 
@@ -1009,7 +1048,7 @@ export function Repeat<R extends Rule<any, C>, C extends Context>(rule: R, opts?
 /**
  * Matches if the provided `rule` matches. If it does not, still match but returns `undefined`.
  */
-export function Opt<T, C extends Context>(rule: Rule<T, C>) {
+export function Opt<R extends Rule<any, any>>(rule: R): Rule<Result<R> | undefined, ContextOf<R>> {
   return new OptRule(rule)
 }
 
@@ -1017,7 +1056,7 @@ export function Opt<T, C extends Context>(rule: Rule<T, C>) {
 /**
  * Matches only if the provided `rule` does not match.
  */
-export function Not<C extends Context>(rule: Rule<any, C>) {
+export function Not<R extends Rule<any, any>>(rule: R): Rule<null, ContextOf<R>> {
   return new NotRule(rule)
 }
 
@@ -1085,7 +1124,7 @@ export const Eof = new class EOF extends Rule<null, Context> {
  * Expression = SeparatedBy(PLUS, Terminal)
  * ```
  */
-export function Forward<T, C extends Context>(rulefn: () => Rule<T, C>) {
+export function Forward<R extends Rule<any, any>>(rulefn: () => R): Rule<Result<R>, ContextOf<R>> {
   return new ForwardRule(rulefn)
 }
 
@@ -1096,7 +1135,7 @@ export function Forward<T, C extends Context>(rulefn: () => Rule<T, C>) {
  * The separator may appear before the start of the sequence if `opts.leading` is `true`, and
  * after the last matched rule if `opts.trailing` is `true`.
  */
-export function SeparatedBy<T, C extends Context>(sep: Rule<any, C>, rule: Rule<T, C>, opts?: {trailing?: boolean, leading?: boolean}) {
+export function SeparatedBy<R extends Rule<any, any>>(sep: Rule<any, ContextOf<R>>, rule: R, opts?: {trailing?: boolean, leading?: boolean}): Rule<Result<R>[], ContextOf<R>> {
   return new SeparatedByRule(sep, rule, opts)
 }
 
@@ -1120,7 +1159,7 @@ export function SeparatedBy<T, C extends Context>(sep: Rule<any, C>, rule: Rule<
  * ```typescript
  * ```
  */
-export function TdopOperator<T, C extends Context>(terminal: Rule<T, C>) {
+export function TdopOperator<R extends Rule<any, any>>(terminal: R) {
   return new TdopOperatorRule(terminal)
 }
 
@@ -1130,6 +1169,6 @@ export function TdopOperator<T, C extends Context>(terminal: Rule<T, C>) {
  * found in BNF grammar definitions, where each predecence level calls the next one as
  * its operands.
  */
-export function RecOperator<T, C extends Context>(terminal: Rule<T, C>) {
+export function RecOperator<R extends Rule<any, any>>(terminal: R): RecOperatorRule<Result<R>, ContextOf<R>> {
   return new RecOperatorRule(terminal)
 }

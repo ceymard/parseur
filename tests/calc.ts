@@ -39,8 +39,8 @@ export namespace CalcRec {
   export const Expression: Rule<number> = RecOperator(Terminal)
     .Prefix(P`-`, (_, right) => -right)
     .Binary(P`**`, (_, left, right) => Math.pow(left, right))
-    .Binary(Either(P`*`, P`/`).setName('Rec * /'), (op, left, right) => op === '*' ? left * right : left / right)
-    .Binary(Either(P`+`, P`-`).setName('Rec + -'), (op, left, right) => op === '+' ? left + right : left - right)
+    .Binary(Either(P`*`, P`/`).setName('Rec * /'), (op, left, right) => op.str === '*' ? left * right : left / right)
+    .Binary(Either(P`+`, P`-`).setName('Rec + -'), (op, left, right) => op.str === '+' ? left + right : left - right)
 
   export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
 }

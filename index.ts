@@ -1000,6 +1000,18 @@ export const Any = new class AnyRule extends TokenDef<Context> {
   }
 }
 
+export const AnyNoSkip = new class AnyNoSkipRule extends TokenDef<Context> {
+
+  constructor() { super('!any!', false) }
+
+  parse(ctx: Context, pos: number) {
+    var tok: Token | undefined
+    const input = ctx.input
+    while ((tok = input[pos], tok.is_skip)) { pos++ }
+    return tok ? Res(tok, pos + 1) : NoMatch
+  }
+}
+
 
 export const Eof = new class EOF extends Rule<null, Context> {
   firstTokens() {

@@ -225,7 +225,7 @@ export class Parseur<C extends Context = Context> {
         return { status: 'nok' as const, max_token: ctx.max_token, max_pos: ctx.max_pos, tokens }
         // console.log(Res.max_res)
       } else {
-        return { status: 'ok' as const, result: res.res }
+        return { status: 'ok' as const, result: res.res, pos: res.pos }
         // console.log(inspect(res.res, {depth: null}))
       }
     }
@@ -636,7 +636,12 @@ export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, 
 
 
 export class RepeatRule<T, C extends Context> extends Rule<T[], C> {
-  public constructor(public rule: Rule<T, C>, public min?: number, public max?: number, public times?: number) { super() }
+  public constructor(public rule: Rule<T, C>, public min?: number, public max?: number, public times?: number) {
+    super()
+    if (times != undefined && (max != undefined || min != undefined)) {
+      throw new Error(`RepeatRule may not specify times with max or min`)
+    }
+  }
 
   firstTokens(rset: RuleSet) {
     this.rule.firstTokens(rset.extend(this))
@@ -762,7 +767,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
   _leds: Rule<any, C>[] = []
   leds!: Rule<TdopResult<T>, C>
 
-  current_build_level = 1000
+  current_build_level = 100000
 
   get down() {
     this.current_build_level -= 10
@@ -953,8 +958,7 @@ export class RecOperatorRule<T, C extends Context> extends Rule<T, C> {
 
 /////////////////////////////
 
-export function Seq<T extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]>(...seq: T)
-  : Rule<UnionToIntersection<SeqResult<T>> & {}, SeqContext<T>> {
+export function Seq<T extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]>(...seq: T) {
   return new SeqRule(seq)
 }
 
@@ -965,7 +969,7 @@ export function Seq<T extends (Rule<any, any> | {[name: string]: Rule<any, any>}
  *
  * Most rules should be able to be run once before calling their actual parse methods.
  */
-export function Either<T extends Rule<any, any>[]>(...rules: T): Rule<{[K in keyof T]: Result<T[K]>}[number], SeqContext<T>> {
+export function Either<T extends Rule<any, any>[]>(...rules: T) {
   return new EitherRule(rules)
 }
 
@@ -973,15 +977,15 @@ export function Either<T extends Rule<any, any>[]>(...rules: T): Rule<{[K in key
 /**
  *
  */
-export function Repeat<R extends Rule<any, C>, C extends Context>(rule: R, opts?: { min?: number, max?: number }): Rule<Result<R>[], C> {
-  return new RepeatRule(rule, opts?.min, opts?.max)
+export function Repeat<R extends Rule<any, C>, C extends Context>(rule: R, opts?: { min?: number, max?: number, times?: number }) {
+  return new RepeatRule(rule, opts?.min, opts?.max, opts?.times)
 }
 
 
 /**
  *
  */
-export function Opt<T, C extends Context>(rule: Rule<T, C>): Rule<T | undefined, C> {
+export function Opt<T, C extends Context>(rule: Rule<T, C>) {
   return new OptRule(rule)
 }
 
@@ -989,7 +993,7 @@ export function Opt<T, C extends Context>(rule: Rule<T, C>): Rule<T | undefined,
 /**
  *
  */
-export function Not<C extends Context>(rule: Rule<any, C>): Rule<null, C> {
+export function Not<C extends Context>(rule: Rule<any, C>) {
   return new NotRule(rule)
 }
 

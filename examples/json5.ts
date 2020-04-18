@@ -1,3 +1,8 @@
+// An example JSON5 parser written with Parseur.
+// Although I have some ideas as to why, it surprisingly outperforms `json5`'s parser,
+// which is handcrafted, by a 4x factor.
+// There might be some part of the spec that is not implemented here that json5 handles, but I doubt
+// this would lead to a dramatic slowdown of the Parseur implementation.
 import { Parseur, Seq, Either, Rule, Forward, SeparatedBy, Context } from '../index'
 
 var P: Json5Parser['P']
@@ -5,6 +10,7 @@ class Json5Parser extends Parseur {
   // P will make your life easier.
   // It will create tokens on the fly for this parser, without even having to define them
   // first, although you can if you really want to.
+  // you may also set `auto_create_tokens = false` to prevent P from creating its own tokens.
   __ = P = this.P
 
   IDENTIFIER = this.token(/[a-zA-Z$_]\w+/, '$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')

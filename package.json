@@ -12,6 +12,8 @@
   },
   "keywords": [
     "parsing",
+    "parser generator",
+    "combinators",
     "peg",
     "typescript"
   ],

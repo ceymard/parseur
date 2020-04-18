@@ -22,21 +22,31 @@ export type NoMatch = typeof NoMatch
  */
 export class ParseResult<T> {
   debug?: string[]
-  constructor(public res: T, public pos: number) { }
+  constructor(public value: T, public pos: number) { }
 }
 
 
-export function Res<T>(res: T, pos: number) {
-  return new ParseResult(res, pos)
-}
+// export function Res<T>(res: T, pos: number) {
+//   return new ParseResult(res, pos)
+// }
 
 
 export class Context {
   errors: any[] = []
   // input: Token[] = []
 
+  // failing_rule: Rule<any, this> | undefined
   max_token: Token | undefined
   max_pos: number | undefined
+
+  failed_pos?: number
+  failed_rule?: Rule<any>
+
+  res<T>(value: T, pos: number) {
+    this.failed_pos = undefined
+    this.failed_rule = undefined
+    return new ParseResult(value, pos)
+  }
 
   constructor(public input: Token[]) { }
 }
@@ -219,7 +229,7 @@ export class Parseur<C extends Context = Context> {
         return { status: 'nok' as const, max_token: ctx.max_token, max_pos: ctx.max_pos, tokens }
         // console.log(Res.max_res)
       } else {
-        return { status: 'ok' as const, result: res.res, pos: res.pos }
+        return { status: 'ok' as const, result: res.value, pos: res.pos }
         // console.log(inspect(res.res, {depth: null}))
       }
     }
@@ -286,13 +296,13 @@ export class Parseur<C extends Context = Context> {
 
         for (var i = 0, l = seq.length; i < l; i++) {
           var match = seq[i].parse(ctx, pos)
-          if (match === NoMatch) return NoMatch
-          if (in_res[i]) res.push(match.res)
+          if (match === NoMatch) return this.nomatch(ctx, pos)
+          if (in_res[i]) res.push(match.value)
           pos = match.pos
         }
 
-        if (single_res) return Res(res[0], pos)
-        return Res(res, pos)
+        if (single_res) return ctx.res(res[0], pos)
+        return ctx.res(res, pos)
       }
     }
 
@@ -350,6 +360,15 @@ export abstract class Rule<T, C extends Context = Context> {
   _name = ''
   _build_name: null | (() => string) = null
 
+  nomatch(ctx: Context, pos: number): NoMatch {
+    var fp = ctx.failed_pos
+    if (fp == undefined || pos >= fp) {
+      ctx.failed_rule = this
+      ctx.failed_pos = pos
+    }
+    return NoMatch
+  }
+
   then<U>(fn: ThenFn<T, U, C>): Rule<U, C> {
     return new ThenRule(this, fn)
   }
@@ -391,10 +410,10 @@ export class ThenRule<T, U, C extends Context = Context> extends Rule<U, C> {
 
   parse(ctx: C, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
-    if (res === NoMatch) return NoMatch
-    var res2 = this.fn(res.res, ctx, res.pos, pos)
-    if (res2 === NoMatch) return NoMatch
-    return Res(res2, res.pos)
+    if (res === NoMatch) return res
+    var res2 = this.fn(res.value, ctx, res.pos, pos)
+    if (res2 === NoMatch) return res2
+    return ctx.res(res2, res.pos)
   }
 }
 
@@ -408,8 +427,8 @@ export class ThenResRule<T, U, C extends Context = Context> extends Rule<U, C> {
 
   parse(ctx: C, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
-    if (res === NoMatch) return NoMatch
-    return this.fn(res.res, ctx, res.pos, pos)
+    if (res === NoMatch) return res
+    return this.fn(res.value, ctx, res.pos, pos)
   }
 }
 
@@ -443,7 +462,7 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
     var input = ctx.input
     while ((next = input[pos++])) {
       if (next.def === this) {
-        var r = Res(next, pos)
+        var r = ctx.res(next, pos)
         var max_pos = ctx.max_pos
         if (max_pos == undefined || max_pos < pos) {
           ctx.max_pos = pos
@@ -451,7 +470,7 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
         }
         return  r
       }
-      if (!next.is_skip) return NoMatch
+      if (!next.is_skip) return this.nomatch(ctx, pos)
     }
     return NoMatch
   }
@@ -459,13 +478,13 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
   as(str: RegExp): Rule<RegExpExecArray, C>
   as(str: string): Rule<string, C>
   as(str: string | RegExp): Rule<string | RegExpExecArray, C> {
-    return this.then(res => {
+    return this.then((res, ctx, pos) => {
       var match = res.str[0]
       if (typeof str === 'string') {
-        return match === str ? match : NoMatch
+        return match === str ? match : this.nomatch(ctx, pos)
       }
       var m2 = str.exec(match)
-      if (!m2) return NoMatch
+      if (!m2) return this.nomatch(ctx, pos)
       return m2
     })
   }
@@ -487,7 +506,7 @@ export class OptRule<T, C extends Context> extends Rule<T | undefined, C> {
 
   parse(ctx: C, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
-    if (res === NoMatch) return Res(undefined, pos)
+    if (res === NoMatch) return ctx.res(undefined, pos)
     return res
   }
 
@@ -547,7 +566,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
           }
         }
 
-        if (!tk.is_skip) return NoMatch
+        if (!tk.is_skip) return this.nomatch(ctx, pos)
         pos++
       }
     }
@@ -557,7 +576,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
       var res = rule.parse(ctx, pos)
       if (res !== NoMatch) return res
     }
-    return NoMatch
+    return this.nomatch(ctx, pos)
   }
 
 }
@@ -619,11 +638,11 @@ export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, 
       var key = names[i]
       var match = rule.parse(ctx, pos)
       // console.log(key, match, entries[i][1])
-      if (match === NoMatch) return NoMatch
+      if (match === NoMatch) return this.nomatch(ctx, pos)
       pos = match.pos
-      if (key !== null) res[key] = match.res
+      if (key !== null) res[key] = match.value
     }
-    return Res(res, pos)
+    return ctx.res(res, pos)
   }
 
 }
@@ -649,13 +668,13 @@ export class RepeatRule<T, C extends Context> extends Rule<T[], C> {
     var max = this.max
     var times = this.times
     while ((rres = rule.parse(ctx, pos)) !== NoMatch) {
-      res.push(rres.res)
+      res.push(rres.value)
       pos = rres.pos
       if (max != null && res.length >= max) break
     }
-    if (min != null && res.length < min) return NoMatch
-    if (times != null && res.length !== times) return NoMatch
-    return Res(res, pos)
+    if (min != null && res.length < min) return this.nomatch(ctx, pos)
+    if (times != null && res.length !== times) return this.nomatch(ctx, pos)
+    return ctx.res(res, pos)
   }
 }
 
@@ -669,7 +688,7 @@ export class NotRule<C extends Context> extends Rule<null, C> {
 
   parse(ctx: C, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
-    if (res === NoMatch) return Res(null, pos)
+    if (res === NoMatch) return ctx.res(null, pos)
     return NoMatch
   }
 }
@@ -728,7 +747,7 @@ export class SeparatedByRule<T, C extends Context> extends Rule<T[], C> {
     while (true) {
       var rres = rule.parse(ctx, pos)
       if (rres === NoMatch) { at_sep = false; break }
-      res.push(rres.res)
+      res.push(rres.value)
       pos = rres.pos
 
       var sres = sep.parse(ctx, pos)
@@ -736,8 +755,8 @@ export class SeparatedByRule<T, C extends Context> extends Rule<T[], C> {
       pos = sres.pos
     }
 
-    if (!at_sep && !this.trailing) return NoMatch
-    return Res(res, pos)
+    if (!at_sep && !this.trailing) return this.nomatch(ctx, pos)
+    return ctx.res(res, pos)
   }
 }
 
@@ -793,10 +812,10 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
 
     // var cached_op: TdopResult<T> | undefined
 
-    function expression(rbp: number): T | NoMatch {
+    const expression = (rbp: number): T | NoMatch => {
       var leftp = nuds.parse(ctx, pos)
-      if (leftp === NoMatch) return NoMatch
-      var leftm = leftp.res
+      if (leftp === NoMatch) return this.nomatch(ctx, pos)
+      var leftm = leftp.value
       pos = leftp.pos
 
       var left: T | NoMatch
@@ -806,11 +825,11 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
         if (!leftm.nud) return NoMatch
         left = leftm.nud((n: number) => expression(n))
       }
-      if (left === NoMatch) return NoMatch
+      if (left === NoMatch) return this.nomatch(ctx, pos)
 
       var op = leds.parse(ctx, pos)
       if (op === NoMatch) return left
-      var opm = op.res
+      var opm = op.value
       // cached_op = opm
 
       while (rbp < opm.lbp!) {
@@ -832,15 +851,15 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
         if (op === NoMatch) {
           return left
         }
-        opm = op.res
+        opm = op.value
       }
 
       return left
     }
 
     var res = expression(0)
-    if (res === NoMatch) return NoMatch
-    return Res(res, pos)
+    if (res === NoMatch) return this.nomatch(ctx, pos)
+    return ctx.res(res, pos)
   }
 
   Prefix<R>(rule: Rule<R, C>, fn: (op: R, right: T) => T | NoMatch) {
@@ -1012,7 +1031,7 @@ export const Any = new class AnyRule extends TokenDef<Context> {
 
   parse(ctx: Context, pos: number) {
     var tok: Token | undefined = ctx.input[pos]
-    return tok ? Res(tok, pos + 1) : NoMatch
+    return tok ? ctx.res(tok, pos + 1) : this.nomatch(ctx, pos)
   }
 }
 
@@ -1028,7 +1047,7 @@ export const AnyNoSkip = new class AnyNoSkipRule extends TokenDef<Context> {
     var tok: Token | undefined
     const input = ctx.input
     while ((tok = input[pos], tok.is_skip)) { pos++ }
-    return tok ? Res(tok, pos + 1) : NoMatch
+    return tok ? ctx.res(tok, pos + 1) : this.nomatch(ctx, pos)
   }
 }
 
@@ -1045,8 +1064,8 @@ export const Eof = new class EOF extends Rule<null, Context> {
     var tk: Token | undefined
     var input = ctx.input
     while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
-    if (tk == undefined) return Res(null, pos)
-    return NoMatch
+    if (tk == undefined) return ctx.res(null, pos)
+    return this.nomatch(ctx, pos)
   }
 }
 

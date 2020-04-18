@@ -14,15 +14,15 @@ export namespace CalcOp {
   ).setName('Op Terminal')
 
   export const Expression: Rule<number> = TdopOperator(Terminal)
-    .prefix(P`-`, (_, left) => -left)
+    .Prefix(P`-`, (_, left) => -left)
     .down
-    .binary(P`**`, (_, left, right) => Math.pow(left, right))
+    .Binary(P`**`, (_, left, right) => Math.pow(left, right))
     .down
-    .binary(P`*`, (_, left, right) => left * right)
-    .binary(P`/`, (_, left, right) => left / right)
+    .Binary(P`*`, (_, left, right) => left * right)
+    .Binary(P`/`, (_, left, right) => left / right)
     .down
-    .binary(P`+`, (_, left, right) => left + right)
-    .binary(P`-`, (_, left, right) => left - right)
+    .Binary(P`+`, (_, left, right) => left + right)
+    .Binary(P`-`, (_, left, right) => left - right)
 
   export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
 }

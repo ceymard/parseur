@@ -841,7 +841,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return Res(res, pos)
   }
 
-  prefix<R>(rule: Rule<R, C>, fn: (op: R, right: T) => T | NoMatch) {
+  Prefix<R>(rule: Rule<R, C>, fn: (op: R, right: T) => T | NoMatch) {
     var power = this.current_build_level
     var nr = rule.then(r => TdopResult.create<T>({
       nud: expr => {
@@ -854,7 +854,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return this
   }
 
-  suffix<R>(rule: Rule<R, C>, fn: (op: R, left: T) => T | NoMatch) {
+  Suffix<R>(rule: Rule<R, C>, fn: (op: R, left: T) => T | NoMatch) {
     var power = this.current_build_level
     var lr = rule.then(r => TdopResult.create<T>({
       lbp: power,
@@ -866,7 +866,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return this
   }
 
-  binary<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  Binary<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
     var power = this.current_build_level
     var lr = rule.then(r => TdopResult.create<T>({
       lbp: power,
@@ -880,7 +880,7 @@ export class TdopOperatorRule<T, C extends Context> extends Rule<T, C> {
     return this
   }
 
-  binaryRight<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
+  BinaryRight<R>(rule: Rule<R, C>, fn: (op: R, left: T, right: T) => T | NoMatch) {
     var power = this.current_build_level
     var lr = rule.then(r => TdopResult.create<T>({
       lbp: power,
@@ -950,16 +950,26 @@ export class RecOperatorRule<T, C extends Context> extends Rule<T, C> {
 
 /////////////////////////////
 
+/**
+ * Matches a sequence of rules in order. If any of its rules fail, then it fails.
+ *
+ * By default, the results of the subrules are not stored in the result of the sequence. To
+ * have them available, they must be passed in objects ; their property names becomes the property
+ * in which the result will be available.
+ *
+ * ```typescript
+ * Seq(Rule1, Rule2, { prop: Rule3 }, Rule4, { prop2: Rule5 }).then(res =>
+ *    // res.prop and res.prop2 contain the results.
+ * )
+ * ```
+ */
 export function Seq<T extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]>(...seq: T) {
   return new SeqRule(seq)
 }
 
 
 /**
- * FIXME: either should have a map to tokendefs of the first tokens of its child rules
- *    to avoid checking for useless match arms.
- *
- * Most rules should be able to be run once before calling their actual parse methods.
+ * Matches any rule provided to it, returning the result of the first one that does.
  */
 export function Either<T extends Rule<any, any>[]>(...rules: T) {
   return new EitherRule(rules)
@@ -967,7 +977,8 @@ export function Either<T extends Rule<any, any>[]>(...rules: T) {
 
 
 /**
- *
+ * Tries to match the rule as many times as it can, returning an array of the results
+ * once it cannot anymore.
  */
 export function Repeat<R extends Rule<any, C>, C extends Context>(rule: R, opts?: { min?: number, max?: number, times?: number }) {
   return new RepeatRule(rule, opts?.min, opts?.max, opts?.times)
@@ -975,7 +986,7 @@ export function Repeat<R extends Rule<any, C>, C extends Context>(rule: R, opts?
 
 
 /**
- *
+ * Matches if the provided `rule` matches. If it does not, still match but returns `undefined`.
  */
 export function Opt<T, C extends Context>(rule: Rule<T, C>) {
   return new OptRule(rule)
@@ -983,13 +994,16 @@ export function Opt<T, C extends Context>(rule: Rule<T, C>) {
 
 
 /**
- *
+ * Matches only if the provided `rule` does not match.
  */
 export function Not<C extends Context>(rule: Rule<any, C>) {
   return new NotRule(rule)
 }
 
 
+/**
+ * Matches any token, even tokens that can be skipped
+ */
 export const Any = new class AnyRule extends TokenDef<Context> {
 
   constructor() { super('!any!', false) }
@@ -1000,6 +1014,10 @@ export const Any = new class AnyRule extends TokenDef<Context> {
   }
 }
 
+
+/**
+ * Matches any token that is not a skippable token.
+ */
 export const AnyNoSkip = new class AnyNoSkipRule extends TokenDef<Context> {
 
   constructor() { super('!any!', false) }
@@ -1013,6 +1031,9 @@ export const AnyNoSkip = new class AnyNoSkipRule extends TokenDef<Context> {
 }
 
 
+/**
+ * Matches the end of the input. Will skip skippable tokens.
+ */
 export const Eof = new class EOF extends Rule<null, Context> {
   firstTokens() {
     // do nothing
@@ -1028,21 +1049,66 @@ export const Eof = new class EOF extends Rule<null, Context> {
 }
 
 
+/**
+ * Acts as a "forward declaration" for the rule. This is particularly useful in recursive grammars.
+ *
+ *
+ * ```typescript
+ * // The following example does not really compile as is, but it is just to give the gist of the idea.
+ * Terminal = Either(
+ *   NUMBER,
+ *   // It would be an error to give Expression without forward here since it is not yet defined.
+ *   Seq(LPAREN, Forward(() => Expression), RPAREN),
+ * )
+ *
+ * Expression = SeparatedBy(PLUS, Terminal)
+ * ```
+ */
 export function Forward<T, C extends Context>(rulefn: () => Rule<T, C>) {
   return new ForwardRule(rulefn)
 }
 
 
+/**
+ * Does like `Repeat`, but where the rules are separated by another defined by `sep`.
+ *
+ * The separator may appear before the start of the sequence if `opts.leading` is `true`, and
+ * after the last matched rule if `opts.trailing` is `true`.
+ */
 export function SeparatedBy<T, C extends Context>(sep: Rule<any, C>, rule: Rule<T, C>, opts?: {trailing?: boolean, leading?: boolean}) {
   return new SeparatedByRule(sep, rule, opts)
 }
 
 
+/**
+ * Parse an expression with operators which have a precedence.
+ * Internally, the method used is the "Top Down Operator Precedence" method of parsing, although
+ * instead of tokens that have `nud` and `led` methods, we use the rules' results.
+ * This method is usually quite faster than the recursive approach ; the simple `calc.ts` example sees
+ * a parse speed gain of around 50%.
+ *
+ * The argument is the terminal expression. You can then chain the result with
+ * `.Prefix` for prefix operators, `.Suffix` for suffixes, `.Binary` for binary
+ * operators and `.BinaryRight` for binary operators that are right associative.
+ *
+ * All these methods take a rule as the operator and a callback that will run
+ * on the result. The callback return type must be the same as the terminal expression.
+ *
+ * Use `.down` to lower the precedence level.
+ *
+ * ```typescript
+ * ```
+ */
 export function TdopOperator<T, C extends Context>(terminal: Rule<T, C>) {
   return new TdopOperatorRule(terminal)
 }
 
 
+/**
+ * Does the same as `TdopOperator`, except using the recursive approach traditionally
+ * found in BNF grammar definitions, where each predecence level calls the next one as
+ * its operands.
+ */
 export function RecOperator<T, C extends Context>(terminal: Rule<T, C>) {
   return new RecOperatorRule(terminal)
 }

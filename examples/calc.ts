@@ -27,15 +27,15 @@ export class Calc extends Parseur {
   // precedence. This method is not the same as what is usually done with bnf-style grammars
   // where the different levels are different rules that call each other recursively.
   Expression = TdopOperator(this.Terminal)
-    .prefix(P`-`, (_, left) => -left)
+    .Prefix(P`-`, (_, left) => -left)
     .down
-    .binary(P`**`, (_, left, right) => Math.pow(left, right))
+    .Binary(P`**`, (_, left, right) => Math.pow(left, right))
     .down
-    .binary(P`*`, (_, left, right) => left * right)
-    .binary(P`/`, (_, left, right) => left / right)
+    .Binary(P`*`, (_, left, right) => left * right)
+    .Binary(P`/`, (_, left, right) => left / right)
     .down
-    .binary(P`+`, (_, left, right) => left + right)
-    .binary(P`-`, (_, left, right) => left - right)
+    .Binary(P`+`, (_, left, right) => left + right)
+    .Binary(P`-`, (_, left, right) => left - right)
 
   // We make a toplevel expression that ensures that we get to the end of the input
   // so that otherwise the parse will fail.

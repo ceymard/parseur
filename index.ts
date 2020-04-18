@@ -310,7 +310,8 @@ export function escape(str: string) {
 }
 
 
-export type ThenFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number) => U | NoMatch | ParseResult<U> | Rule<U, C>
+export type ThenFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number) => U | NoMatch
+export type ThenResFn<T, U, C extends Context> = (res: T, ctx: C, pos: number, start: number) => NoMatch | ParseResult<U>
 
 
 /**
@@ -353,6 +354,10 @@ export abstract class Rule<T, C extends Context = Context> {
     return new ThenRule(this, fn)
   }
 
+  thenRes<U>(fn: ThenResFn<T, U, C>): Rule<U, C> {
+    return new ThenResRule(this, fn)
+  }
+
   tap(fn: (res: T, ctx: C, pos: number, start: number) => any) {
     return this.then((res, ctx, pos, start) => {
       fn(res, ctx, pos, start)
@@ -389,9 +394,22 @@ export class ThenRule<T, U, C extends Context = Context> extends Rule<U, C> {
     if (res === NoMatch) return NoMatch
     var res2 = this.fn(res.res, ctx, res.pos, pos)
     if (res2 === NoMatch) return NoMatch
-    if (res2 instanceof ParseResult) return res2
-    if (res2 instanceof Rule) return res2.parse(ctx, res.pos)
     return Res(res2, res.pos)
+  }
+}
+
+
+export class ThenResRule<T, U, C extends Context = Context> extends Rule<U, C> {
+  constructor(public rule: Rule<T, C>, public fn: ThenResFn<T, U, C>) { super() }
+
+  firstTokens(rset: RuleSet) {
+    this.rule.firstTokens(rset.extend(this))
+  }
+
+  parse(ctx: C, pos: number = 0) {
+    var res = this.rule.parse(ctx, pos)
+    if (res === NoMatch) return NoMatch
+    return this.fn(res.res, ctx, res.pos, pos)
   }
 }
 

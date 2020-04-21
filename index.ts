@@ -85,6 +85,8 @@ export class Parseur<C extends Context = Context> {
   // Accelerator for characters
   token_table: (TokenDef<C>[] | null)[] = new Array(256).fill(null)
 
+  derive_string_tokens_from_regexps = true
+
   constructor() {
     this.P = this.P.bind(this)
   }
@@ -274,8 +276,9 @@ export class Parseur<C extends Context = Context> {
   P<R extends Rule<any, C>[]>(tpl: TemplateStringsArray, ...rules: R): Rule<any, C> {
     const get_tkdef = (token: string) => {
       var def = this.str_tokens.get(token)
+      if (def) return def
       if (!def && !this.auto_create_tokens) throw new Error(`No token defined for '${token}'`)
-      if (!def) {
+      if (!def && this.derive_string_tokens_from_regexps) {
         // First try to see if one of our defined regexp would match and derive it.
         for (var tkdef of this.token_defs) {
           var sdef = tkdef._regex
@@ -289,9 +292,8 @@ export class Parseur<C extends Context = Context> {
         }
 
         // If there is still nothing, we create a new token
-        def = this.token(token)
       }
-      return def
+      return this.token(token)
     }
 
     if (tpl.length === 1 && rules.length === 0 && !tpl[0].match(/\s/)) {
@@ -307,6 +309,7 @@ export class Parseur<C extends Context = Context> {
     for (var i = 0, l = tpl.length; i < l; i++) {
       var strs = tpl[i].split(/\s+/g).filter(t => t !== '')
       for (var s of strs) {
+        // console.log(s)
         seq.push(get_tkdef(s))
         in_res.push(false)
       }
@@ -316,6 +319,8 @@ export class Parseur<C extends Context = Context> {
         in_res.push(true)
       }
     }
+
+    // console.log(seq)
 
     class SRule extends Rule<any, any> {
 
@@ -571,7 +576,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
     rules: for (var r of this.rules) {
       for (var t of r.first_tokens) {
         if (t._skip) this.can_skip = false
-        if (t === Any as TokenDef<any>) {
+        if (t instanceof AnyRule || t instanceof AnyTokenBut) {
           this.can_optimize = false
           // break rules
         }
@@ -1064,14 +1069,43 @@ export function Not<R extends Rule<any, any>>(rule: R): Rule<null, ContextOf<R>>
 /**
  * Matches any token, even tokens that can be skipped
  */
-export const Any = new class AnyRule extends TokenDef<Context> {
+export class AnyRule<C extends Context> extends TokenDef<C> {
 
   constructor() { super('!any!', false) }
 
-  parse(ctx: Context, pos: number) {
+  parse(ctx: C, pos: number) {
     var tok: Token | undefined = ctx.input[pos]
     return tok ? ctx.res(tok, pos + 1) : this.nomatch(ctx, pos)
   }
+}
+
+export function Any<C extends Context>(): AnyRule<C> {
+  return new AnyRule()
+}
+
+
+export class AnyTokenButRule<C extends Context> extends Rule<Token, C> {
+  constructor(public tk: TokenDef<C>, public include_skip?: boolean) {
+    super()
+  }
+
+  parse(ctx: C, pos: number): any {
+    var tk: Token | undefined
+    var looking_for = this.tk
+    const input = ctx.input
+    if (!this.include_skip) {
+      while ((tk = input[pos], tk.is_skip)) { pos++ }
+    } else {
+      tk = input[pos]
+    }
+
+    if (tk.def === looking_for) return this.nomatch(ctx, pos)
+    return ctx.res(tk, pos + 1)
+  }
+}
+
+export function AnyTokenBut<C extends Context>(t: TokenDef<C>, include_skip?: boolean) {
+  return new AnyTokenButRule(t, include_skip)
 }
 
 
@@ -1094,7 +1128,7 @@ export const AnyNoSkip = new class AnyNoSkipRule extends TokenDef<Context> {
 /**
  * Matches the end of the input. Will skip skippable tokens.
  */
-export const Eof = new class EOF extends Rule<null, Context> {
+class EOF extends Rule<null, Context> {
   firstTokens() {
     // do nothing
   }
@@ -1108,6 +1142,9 @@ export const Eof = new class EOF extends Rule<null, Context> {
   }
 }
 
+export function Eof<C extends Context>() {
+  return new EOF
+}
 
 /**
  * Acts as a "forward declaration" for the rule. This is particularly useful in recursive grammars.

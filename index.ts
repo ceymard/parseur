@@ -34,14 +34,12 @@ export class ParseResult<T> {
   }
 }
 
+
+export function Res(value: NoMatch, pos: number): ResNoMatch
+export function Res<T>(value: T, pos: number): ParseResult<T>
 export function Res<T>(value: T, pos: number): ParseResult<T> {
   return new ParseResult(value, pos)
 }
-
-export function NoRes(pos: number): ResNoMatch {
-  return new ParseResult(NoMatch, pos)
-}
-
 
 // export function Res<T>(res: T, pos: number) {
 //   return new ParseResult(res, pos)
@@ -484,7 +482,7 @@ export class ThenRule<T, U, C extends Context = Context> extends Rule<U, C> {
     var res = this.rule.parse(ctx, pos)
     if (res.isNoMatch()) return res
     var res2 = this.fn(res.value, ctx, res.pos, pos, this.rule)
-    if (res2 === NoMatch) return NoRes(pos)
+    if (res2 === NoMatch) return Res(NoMatch, pos)
     return Res(res2, res.pos)
   }
 }
@@ -532,9 +530,9 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
       if (next.def === this) {
         return Res(next, pos)
       }
-      if (!next.is_skip) return NoRes(pos)
+      if (!next.is_skip) return Res(NoMatch, pos)
     }
-    return NoRes(pos)
+    return Res(NoMatch, pos)
   }
 
   [inspect.custom]() {
@@ -641,10 +639,10 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
         }
       }
 
-      if (!tk.is_skip) return NoRes(pos)
+      if (!tk.is_skip) return Res(NoMatch, pos)
       pos++
     }
-    return NoRes(pos)
+    return Res(NoMatch, pos)
   }
 
   doParse(ctx: ContextOf<Rules>, pos: number = 0) {
@@ -660,7 +658,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
       var res = rule.parse(ctx, pos)
       if (!res.isNoMatch()) return res
     }
-    return NoRes(pos)
+    return Res(NoMatch, pos)
   }
 
 }
@@ -763,8 +761,8 @@ export class RepeatRule<T, C extends Context> extends Rule<T[], C> {
       pos = rres.pos
       if (max != null && res.length >= max) break
     }
-    if (min != null && res.length < min) return NoRes(pos)
-    if (times != null && res.length !== times) return NoRes(pos)
+    if (min != null && res.length < min) return Res(NoMatch, pos)
+    if (times != null && res.length !== times) return Res(NoMatch, pos)
     return Res(res, pos)
   }
 }
@@ -776,7 +774,7 @@ export class NotRule<C extends Context> extends Rule<null, C> {
   parse(ctx: C, pos: number = 0) {
     var res = this.rule.parse(ctx, pos)
     if (res.isNoMatch()) return Res(null, pos)
-    return NoRes(pos)
+    return Res(NoMatch, pos)
   }
 }
 
@@ -844,7 +842,7 @@ export class SeparatedByRule<T, C extends Context> extends Rule<T[], C> {
       pos = sres.pos
     }
 
-    if (!at_sep && !this.trailing) return NoRes(pos)
+    if (!at_sep && !this.trailing) return Res(NoMatch, pos)
     return Res(res, pos)
   }
 }
@@ -947,7 +945,7 @@ export class TdopOperatorRule<R extends Rule<any, any>> extends Rule<Result<R>, 
     }
 
     var res = expression(0)
-    if (res === NoMatch) return NoRes(pos)
+    if (res === NoMatch) return Res(NoMatch, pos)
     return Res(res, pos)
   }
 
@@ -1118,7 +1116,7 @@ export class AnyRule<C extends Context> extends Rule<Token, C> {
 
   parse(ctx: C, pos: number) {
     var tok: Token | undefined = ctx.input[pos]
-    return tok ? Res(tok, pos + 1) : NoRes(pos)
+    return tok ? Res(tok, pos + 1) : Res(NoMatch, pos)
   }
 }
 
@@ -1142,7 +1140,7 @@ export class AnyTokenButRule<C extends Context> extends AnyRule<C> {
       tk = input[pos]
     }
 
-    if (!tk || tk.def === looking_for) return NoRes(pos)
+    if (!tk || tk.def === looking_for) return Res(NoMatch, pos)
     return Res(tk, pos + 1)
   }
 }
@@ -1163,7 +1161,7 @@ export const AnyNoSkip = new class AnyNoSkipRule extends TokenDef<Context> {
     var tok: Token | undefined
     const input = ctx.input
     while ((tok = input[pos], tok.is_skip)) { pos++ }
-    return tok ? Res(tok, pos + 1) : NoRes(pos)
+    return tok ? Res(tok, pos + 1) : Res(NoMatch, pos)
   }
 }
 
@@ -1178,7 +1176,7 @@ class EOF extends Rule<null, Context> {
     var input = ctx.input
     while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
     if (tk == undefined) return Res(null, pos)
-    return NoRes(pos)
+    return Res(NoMatch, pos)
   }
 }
 

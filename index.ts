@@ -1,5 +1,8 @@
 // FIXME: Still missing ; a way of handling errors gracefully
 
+import { RegExpParser } from 'regexp-to-ast'
+const regparse = new RegExpParser()
+
 var DEBUG = false
 // A debug map that will hold which rules mapped the tokens
 // export var DEBUG_MAP = new WeakMap<Token, string[]>()
@@ -350,6 +353,9 @@ export class Parseur<C extends Context = Context> {
     return new SRule()
   }
 
+  Eof = Eof<C>()
+  Any = Any<C>()
+
 }
 
 
@@ -576,7 +582,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
     rules: for (var r of this.rules) {
       for (var t of r.first_tokens) {
         if (t._skip) this.can_skip = false
-        if (t instanceof AnyRule || t instanceof AnyTokenBut) {
+        if (t instanceof AnyRule) {
           this.can_optimize = false
           // break rules
         }
@@ -1084,7 +1090,7 @@ export function Any<C extends Context>(): AnyRule<C> {
 }
 
 
-export class AnyTokenButRule<C extends Context> extends Rule<Token, C> {
+export class AnyTokenButRule<C extends Context> extends AnyRule<C> {
   constructor(public tk: TokenDef<C>, public include_skip?: boolean) {
     super()
   }
@@ -1094,12 +1100,12 @@ export class AnyTokenButRule<C extends Context> extends Rule<Token, C> {
     var looking_for = this.tk
     const input = ctx.input
     if (!this.include_skip) {
-      while ((tk = input[pos], tk.is_skip)) { pos++ }
+      while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
     } else {
       tk = input[pos]
     }
 
-    if (tk.def === looking_for) return this.nomatch(ctx, pos)
+    if (!tk || tk.def === looking_for) return this.nomatch(ctx, pos)
     return ctx.res(tk, pos + 1)
   }
 }

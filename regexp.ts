@@ -1,4 +1,4 @@
-import { Parseur, Seq, Opt, Either, Repeat, Forward, Rule, SeparatedBy, Context, Any, AnyTokenBut, Eof } from './index'
+import { Parseur, Seq, Opt, Either, Repeat, Forward, Rule, SeparatedBy, Context, Any, AnyTokenBut, Eof, Not } from './index'
 
 export interface Union {
   type: 'union'
@@ -66,6 +66,13 @@ function ccrange(ss: string, se: string) {
   return res
 }
 
+function single_char(s: string): CharacterValues {
+  return {
+    type: 'chars',
+    values: new Set([cc(s)])
+  }
+}
+
 var P: RegExpParser['P']
 type R<T> = Rule<T, RegExpContext>
 export class RegExpParser extends Parseur<RegExpContext> {
@@ -82,14 +89,14 @@ export class RegExpParser extends Parseur<RegExpContext> {
   derive_string_tokens_from_regexps = false
 
   // Gobble anything that was not defined in our strings
-  NUM = this.token(/\d+/)
-  ANY = this.token(/[^]/)
+  NUM = this.token(/\d+/, null)
+  ANY = this.token(/[^]/, null)
 
   Quantifier: R<Quantifier> = Seq(
     { quanti: Either(
       P`*`.then(r => O<Quantifier>({ at_least: 0 })),
       P`+`.then(r => O<Quantifier>({ at_least: 1 })),
-      P`?`.then(r => O<Quantifier>({ at_least: 1, at_most: 1 })),
+      P`?`.then(r => O<Quantifier>({ at_least: 0, at_most: 1 })),
       Seq(
         P`{`,
         { at_least: Opt(this.NUM.then(n => parseInt(n.str))) },
@@ -111,10 +118,19 @@ export class RegExpParser extends Parseur<RegExpContext> {
       return { type: 'chars', values: new Set(RegExpParser[s]) }
     if (s === 'W' || s === 'D' || s === 'S')
       return { type: 'chars', values: new Set((RegExpParser as any)[s.toLowerCase()]), complement: true }
+    if (s === 'n')
+      return single_char('\n')
+    if (s === 't')
+      return single_char('\t')
+    if (s === 'v')
+      return single_char('\v')
+    if (s === 'r')
+      return single_char('\r')
 
     if (r.def === this.NUM)
       return { type: 'back-reference', index: parseInt(s) }
-    throw new Error('not implemented: ' + r.str)
+    return single_char(s)
+    // throw new Error('not implemented: ' + r.str)
   })
 
   NameGroupReference = P`\\ k < ${Repeat(AnyTokenBut(P`>`)).then(r => r.map(tk => tk.str).join(''))} >`
@@ -155,7 +171,7 @@ export class RegExpParser extends Parseur<RegExpContext> {
         Seq(P`?`, P`<`, { name: Repeat(AnyTokenBut(P`>`)) }, P`>`).then(r => { return { group: r.name.map(t => t.str).join('') } })
       )) }, // FIXME named groups !
       { seq: Forward(() => this.Union) },
-    P`)`.tap(r => console.log('?', r)),
+    P`)`,
   ).then((r, ctx) => {
     var res: Group = {
       type: 'group',
@@ -178,12 +194,12 @@ export class RegExpParser extends Parseur<RegExpContext> {
       this.CharacterClass,
       this.NameGroupReference,
       this.Escape,
-      AnyTokenBut(P`)`).then<CharacterValues>((a, ctx) => {
-        return a.str === '.' ? { type: 'chars', values: new Set(RegExpParser.dot), complement: true }
+      Seq(Not(Either(P`)`, P`|`)), { res: Any() }).then<CharacterValues>((a, ctx) => {
+        return a.res.str === '.' ? { type: 'chars', values: new Set(RegExpParser.dot), complement: true }
           :
             {
               type: 'chars',
-              values: new Set(a.str.split('').map(s => cc(s)))
+              values: new Set(a.res.str.split('').map(s => cc(s)))
             }
       }),
     ) },

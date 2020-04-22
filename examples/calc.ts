@@ -54,7 +54,7 @@ export class Calc extends Parseur {
   // We make a toplevel expression that ensures that we get to the end of the input
   // so that otherwise the parse will fail.
   // If we don't check for Eof, then the parse will just end at the end of an expression
-  TopLevel = Seq({expr: this.Expression}, Eof).then(r => r.expr)
+  TopLevel = Seq({expr: this.Expression}, Eof()).then(r => r.expr)
 
   // we make a convenience parse() function for this parser, as Parseur only defines
   // the parseRule() since it can't make assumptions on how the grammar will work.

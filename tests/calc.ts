@@ -24,7 +24,7 @@ export namespace CalcOp {
     .Binary(P`+`, (_, left, right) => left + right)
     .Binary(P`-`, (_, left, right) => left - right)
 
-  export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
+  export const TopLevel = Seq({expr: Expression}, Eof()).then(r => r.expr)
 }
 
 // console.log(CalcOp.Expression._inited)

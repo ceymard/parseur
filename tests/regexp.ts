@@ -1,20 +1,22 @@
+import '../index'
 import { RegExpParser } from '../regexp'
 import { inspect } from 'util'
-import { benchmark, runBenchmarks } from './testsuite'
-import { RegExpParser as RtaParser } from 'regexp-to-ast'
+// import { benchmark, runBenchmarks } from './testsuite'
+// import { RegExpParser as RtaParser } from 'regexp-to-ast'
 
-function log(v: any) { console.log(inspect(v, { colors: true, depth: null, compact: true })) }
+// function log(v: any) { console.log(inspect(v, { colors: true, depth: null, compact: true })) }
 function test(v: RegExp) {
   console.log(v, inspect(p.parse(v), { colors: true, depth: null, compact: true }))
   // console.log(v, inspect(competition.pattern(v.toString()), { colors: true, depth: null, compact: true }))
 }
 
 var p = new RegExpParser()
-var competition = new RtaParser()
+// var competition = new RtaParser()
 
 // test(/abc/i)
 // test(/\w?\d|\s\S\12/)
 test(/(?<sdf>a)\k<sdf>/)
+test(/(?:\s*\/\/[^\n]*\n?)+|\s*\/\*(?:(?!\*\/)[^])*\*\/\s*|\s+/)
 // test(/[-.]./)
 // test(/.*?/)
 

@@ -102,8 +102,28 @@ export class Parseur<C extends Context = Context> {
     }
   }
 
-  token(def: RegExp | string, accel?: string) {
+  token(def: RegExp | string, accel?: string | null) {
     // All the regexp we handle are sticky ones.
+
+    var starting_chars: CharacterValues[] = []
+
+    const handle_regexp = (node: RegExpNode) => {
+      if (node.type === 'group') {
+        handle_regexp(node.value)
+      } else if (node.type === 'chars') {
+        starting_chars.push(node)
+        // ADD THE CHARACTERS !
+      } else if (node.type === 'sequence') {
+        for (var a of node.atoms) {
+          handle_regexp(a)
+          if (a.quantifier?.at_least !== 0) break
+        }
+      } else if (node.type === 'union') {
+        for (var v of node.sequences) {
+          handle_regexp(v)
+        }
+      }
+    }
 
     var reg = typeof def === 'string' ? def : new RegExp(def.source, (def.flags ?? '').replace('y', '') + 'y')
     var tdef = new TokenDef<C>(reg, false)
@@ -128,6 +148,14 @@ export class Parseur<C extends Context = Context> {
       add_to_ttable(def.charCodeAt(0))
       var ccode = def.charCodeAt(0)
       this.str_tokens.set(def, tdef)
+    } else if (accel !== null) {
+      var preg = reg_parser.parse(def)
+      if (!preg.isNoMatch()) {
+        handle_regexp(preg.value.res)
+        console.log(def, starting_chars)
+      } else {
+        throw new Error(`regexp failed...?`)
+      }
     }
 
     if (!added) this.noaccel_token_defs.push(tdef)
@@ -1247,3 +1275,7 @@ export function TdopOperator<R extends Rule<any, any>>(terminal: R) {
 export function RecOperator<R extends Rule<any, any>>(terminal: R): RecOperatorRule<Result<R>, ContextOf<R>> {
   return new RecOperatorRule(terminal)
 }
+
+
+import { RegExpParser, RegExpNode, CharacterValues } from './regexp'
+const reg_parser = new RegExpParser()

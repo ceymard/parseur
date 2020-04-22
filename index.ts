@@ -1,16 +1,6 @@
 // FIXME: Still missing ; a way of handling errors gracefully
 
-import { RegExpParser } from 'regexp-to-ast'
-const regparse = new RegExpParser()
-
-var DEBUG = false
-// A debug map that will hold which rules mapped the tokens
-// export var DEBUG_MAP = new WeakMap<Token, string[]>()
-export var DEBUG_STACK: string[] = []
-
-export function setDebug(debug: boolean = true) {
-  DEBUG = debug
-}
+import { inspect } from 'util'
 
 /**
  * NoMatch is both a type and a value and is used as the result
@@ -386,7 +376,6 @@ export type Result<T> = T extends Rule<infer U, any> ? U : never
 
 export class RuleSet extends Set<Rule<any, any>> {
   extend(r: Rule<any, any>): this {
-    if (this.has(r)) throw new Error(`Recursive rule`)
     return new (this.constructor as any)(this).add(r)
   }
 }
@@ -549,11 +538,15 @@ export class TokenDef<C extends Context> extends Rule<Token, C> {
           ctx.max_pos = pos
           ctx.max_token = next
         }
-        return  r
+        return r
       }
       if (!next.is_skip) return this.nomatch(ctx, pos)
     }
     return NoMatch
+  }
+
+  [inspect.custom]() {
+    return `TokenDef<${this._name || this._regex}>`
   }
 
   as(str: RegExp): Rule<RegExpExecArray, C>
@@ -600,6 +593,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
 
   rulemap = new Map<TokenDef<ContextOf<Rules>>, Rule<any, any>[]>()
   can_skip = true
+  can_optimize = true
 
   firstTokensImpl(rset: RuleSet): FirstTokenSet<ContextOf<Rules>> {
     var res = new FirstTokenSet<ContextOf<Rules>>()
@@ -610,33 +604,33 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
     return res
   }
 
-  parse(ctx: ContextOf<Rules>, pos: number = 0) {
-    this.parse = this.doParse
+  parse(ctx: ContextOf<Rules>, pos: number = 0): any {
     var rs = new RuleSet([this])
-    var any_rules: Rule<any, any>[] = []
 
     rules: for (var r of this.rules) {
       var rtokens = r.firstTokens(rs)
       if (rtokens.has_any) {
         // HANDLE ANY TOKENS
         this.can_skip = false // can't skip if any token might pop up.
-        for (var val of this.rulemap.values())
-          // add the anytoken rule to all the rules.
-          val.push(r)
-        any_rules.push(r)
+        this.can_optimize = false
         continue
       }
       for (var t of rtokens) {
         if (t._skip) this.can_skip = false
-        var table = this.rulemap.get(t) ?? this.rulemap.set(t, [...any_rules]).get(t)!
+        var table = this.rulemap.get(t) ?? this.rulemap.set(t, []).get(t)!
         table.push(r)
       }
     }
 
-    return this.doParse(ctx, pos)
+    if (this.can_optimize) {
+      this.parse = this.doParseOptimized
+    } else {
+      this.parse = this.doParse
+    }
+    return this.parse(ctx, pos)
   }
 
-  doParse(ctx: ContextOf<Rules>, pos: number = 0) {
+  doParseOptimized(ctx: ContextOf<Rules>, pos: number = 0) {
     var tk: Token | undefined
 
     const input = ctx.input
@@ -658,8 +652,18 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
       if (!tk.is_skip) return this.nomatch(ctx, pos)
       pos++
     }
+    return this.nomatch(ctx, pos)
+  }
 
-    // ?????? should I keep that ?
+  doParse(ctx: ContextOf<Rules>, pos: number = 0) {
+    var tk: Token | undefined
+
+    const input = ctx.input
+    if (this.can_skip) {
+      while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
+    }
+
+ // ?????? should I keep that ?
     for (var rules = this.rules, i = 0, l = rules.length; i < l; i++) {
       var rule = rules[i]
       var res = rule.parse(ctx, pos)

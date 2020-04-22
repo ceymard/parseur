@@ -14,10 +14,10 @@ export class Calc extends Parseur {
 
   // The only tokens we need to define beforehand are number and whitespace.
   // The operators, being simple string, are defined where used using the magical `P` rule.
-  NUM = this.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789') //.map(r => parseFloat(r.match[0])),
+  NUM = this.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/) //.map(r => parseFloat(r.match[0])),
 
   // Whitespace is skippable and by default is ignored in the grammar
-  WS = this.token(/[\s\n]+/).skip()
+  WS = this.token(/\s+/).skip()
 
   __ = P = this.P
 

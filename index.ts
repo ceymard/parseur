@@ -102,7 +102,7 @@ export class Parseur<C extends Context = Context> {
     }
   }
 
-  token(def: RegExp | string, accel?: string | null) {
+  token(def: RegExp | string, accel?: boolean) {
     // All the regexp we handle are sticky ones.
 
     var starting_chars: CharacterValues[] = []
@@ -137,22 +137,22 @@ export class Parseur<C extends Context = Context> {
       // console.log(String.fromCharCode(code), tbl.map(t => t._regex))
     }
 
-    if (accel) {
-      for (var i = 0, l = accel.length; i < l; i++) {
-        ccode = accel[i].charCodeAt(0)
-        add_to_ttable(ccode)
-      }
-    }
-
     if (typeof def === 'string') {
       add_to_ttable(def.charCodeAt(0))
-      var ccode = def.charCodeAt(0)
       this.str_tokens.set(def, tdef)
-    } else if (accel !== null) {
+    } else if (accel !== false) {
       var preg = reg_parser.parse(def)
       if (!preg.isNoMatch()) {
         handle_regexp(preg.value.res)
-        console.log(def, starting_chars)
+        var s = new Set<number>()
+        for (var st of starting_chars) {
+          if (st.complement) throw new Error(`Parseur does not handle complements for now`)
+          for (var _s of st.values)
+            s.add(_s)
+        }
+        for (var _s of s)
+          if (_s < 258) add_to_ttable(_s)
+        // console.log(def, starting_chars)
       } else {
         throw new Error(`regexp failed...?`)
       }

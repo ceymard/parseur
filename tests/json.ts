@@ -4,9 +4,9 @@ import { parse as chevrotain_parse } from './chevrotain/json'
 
 const TK = new class JsonTokenizer extends Parseur {
   // End with the regexps
-  STR =   this.token(/"(?:\\"|[^"])*"/, '"') //.map(r => r.match[0].slice(1, -1)),
-  NUM =   this.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789-') //.map(r => parseFloat(r.match[0])),
-  WHITESPACE = this.token(/[\s\n\t\r]+/, ' \t\n\r').skip()
+  STR =   this.token(/"(?:\\"|[^"])*"/) //.map(r => r.match[0].slice(1, -1)),
+  NUM =   this.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/) //.map(r => parseFloat(r.match[0])),
+  WHITESPACE = this.token(/\s+/).skip()
 }
 
 const P = TK.P

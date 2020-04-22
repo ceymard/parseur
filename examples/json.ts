@@ -7,9 +7,9 @@ class JsonParser extends Parseur {
   // first, although you can if you really want to.
   __ = P = this.P
 
-  STR =   this.token(/"(?:\\"|[^"])*"/, '"') //.map(r => r.match[0].slice(1, -1)),
-  NUM =   this.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789-') //.map(r => parseFloat(r.match[0])),
-  WHITESPACE = this.token(/[\s\n\t\r]+/, ' \t\n\r').skip()
+  STR =   this.token(/"(?:\\"|[^"])*"/) //.map(r => r.match[0].slice(1, -1)),
+  NUM =   this.token(/-?\d+(?:\.\d+)?(?:[eE][+-]?)?/) //.map(r => parseFloat(r.match[0])),
+  WHITESPACE = this.token(/[\s\n\t\r]+/).skip()
 
   Json: Rule<any> = Either(
     this.STR.then(r => r.str.slice(1, -1)),

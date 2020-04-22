@@ -13,11 +13,11 @@ class Json5Parser extends Parseur {
   // you may also set `auto_create_tokens = false` to prevent P from creating its own tokens.
   __ = P = this.P
 
-  IDENTIFIER = this.token(/[a-zA-Z$_]\w+/, '$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
-  STR =   this.token(/(["'])(?:\\\1|(?!\1)[^])*\1/, `"'`) //.map(r => r.match[0].slice(1, -1)),
-  HEXA = this.token(/\+?-?0x[0-9a-f]+/i, '+-0')
-  NUM =   this.token(/-?\+?\.?(?:\d+\.?(?:\d+)?|\.\d+)(?:[eE][+-]?\d+)?/, '+.-0123456789') //.map(r => parseFloat(r.match[0])),
-  WHITESPACE = this.token(/(?:\s*\/\/[^\n]*\n?)+|\s*\/\*(?:(?!\*\/)[^])*\*\/\s*|\s+/, '/ \t\n\r').skip()
+  IDENTIFIER = this.token(/[a-zA-Z$_]\w+/)
+  STR =   this.token(/(["'])(?:\\\1|(?!\1)[^])*\1/) //.map(r => r.match[0].slice(1, -1)),
+  HEXA = this.token(/\+?-?0x[0-9a-f]+/i)
+  NUM =   this.token(/-?\+?\.?(?:\d+\.?(?:\d+)?|\.\d+)(?:[eE][+-]?\d+)?/) //.map(r => parseFloat(r.match[0])),
+  WHITESPACE = this.token(/(?:\s*\/\/[^\n]*\n?)+|\s*\/\*(?:(?!\*\/)[^])*\*\/\s*|\s+/).skip()
 
   Json: Rule<any> = Either(
     this.STR.then(r => r.str.slice(1, -1).replace(/\\(?:u[\da-fA-F]{4}|x[\da-fA-F]{2}|\r\n|[^])/g, m => {
@@ -82,7 +82,7 @@ function log(expr: string) {
   if (res.status === 'ok') {
     console.log(inspect(res.result, { colors: true, depth: null }))
   } else {
-    console.log(`Parse failed`, res.max_pos, `'${res.max_token?.str}'`, res.tokens?.map((t, i) => `<${i}:${t.str.replace(/\n/g, '\\n')}>`).join(' '))
+    console.log(`Parse failed`, res.pos, res.tokens?.map((t, i) => `<${i}:${t.str.replace(/\n/g, '\\n')}>`).join(' '))
   }
 }
 

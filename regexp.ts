@@ -1,4 +1,4 @@
-import { Parseur, Seq, Opt, Either, Repeat, Forward, Rule, SeparatedBy, Context, Any, AnyTokenBut, Eof, Not } from './index'
+import { Parseur, Seq, Opt, Either, Repeat, Forward, Rule, SeparatedBy, Context, Any, AnyTokenBut, Not } from './index'
 
 export interface Union {
   type: 'union'
@@ -89,8 +89,8 @@ export class RegExpParser extends Parseur<RegExpContext> {
   derive_string_tokens_from_regexps = false
 
   // Gobble anything that was not defined in our strings
-  NUM = this.token(/\d+/, null)
-  ANY = this.token(/[^]/, null)
+  NUM = this.token(/\d+/, false)
+  ANY = this.token(/[^]/, false)
 
   Quantifier: R<Quantifier> = Seq(
     { quanti: Either(

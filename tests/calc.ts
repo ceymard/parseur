@@ -1,7 +1,7 @@
 import { Parseur, Either, Forward, TdopOperator, Rule, Seq, RecOperator, Eof, Context } from '../index'
 
 const tk = new Parseur()
-const NUM =   tk.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/, '0123456789') //.map(r => parseFloat(r.match[0])),
+const NUM =   tk.token(/\d+(?:\.\d+)?(?:[eE][+-]?)?/) //.map(r => parseFloat(r.match[0])),
 // const WS =
 tk.token(/[\s\n]+/).skip()
 const P = tk.P
@@ -42,7 +42,7 @@ export namespace CalcRec {
     .Binary(Either(P`*`, P`/`).setName('Rec * /'), (op, left, right) => op.str === '*' ? left * right : left / right)
     .Binary(Either(P`+`, P`-`).setName('Rec + -'), (op, left, right) => op.str === '+' ? left + right : left - right)
 
-  export const TopLevel = Seq({expr: Expression}, Eof).then(r => r.expr)
+  export const TopLevel = Seq({expr: Expression}, Eof()).then(r => r.expr)
 }
 
 function parse(r: Rule<number>, input: string) {

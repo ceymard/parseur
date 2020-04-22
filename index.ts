@@ -26,16 +26,20 @@ export interface ParseResult<T> {
   isNoMatch(): this is ResNoMatch
 }
 
+export class ParseResult<T> {
+  constructor(public value: T, public pos: number) { }
+
+  isNoMatch(): this is ResNoMatch {
+    return (this.value as any) === NoMatch
+  }
+}
+
 export function Res<T>(value: T, pos: number): ParseResult<T> {
-  return { value, pos, isNoMatch }
+  return new ParseResult(value, pos)
 }
 
 export function NoRes(pos: number): ResNoMatch {
-  return { value: NoMatch, pos, isNoMatch }
-}
-
-function isNoMatch<T>(this: ParseResult<T> | ResNoMatch) {
-  return (this.value as any) === NoMatch
+  return new ParseResult(NoMatch, pos)
 }
 
 

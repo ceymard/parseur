@@ -67,33 +67,20 @@ console.log(parse(CalcRec.TopLevel, '2 + 8 / 2 + 10 * 5 ** 2 - 3'))
 
 // process.exit(0)
 
-import { Suite } from 'benchmark'
-import * as Benchmark from 'benchmark'
+import { benchmark, runBenchmarks } from './testsuite'
 
-var s = new Suite()
-
-s.add(function ParseOp() {
+benchmark('With TdopOperator', function ParseOp() {
   parse(CalcOp.Expression, '2 + 4')
   parse(CalcOp.Expression, '2 + 5 * 2 - 2')
   parse(CalcOp.Expression, '2 + 5 * (2 - 2)')
   parse(CalcOp.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3')
 })
 
-s.add(function ParseRec() {
+benchmark('With Recursive rule', function ParseRec() {
   parse(CalcRec.Expression, '2 + 4')
   parse(CalcRec.Expression, '2 + 5 * 2 - 2')
   parse(CalcRec.Expression, '2 + 5 * (2 - 2)')
   parse(CalcRec.Expression, '2 + 8 / 2 + 10 * 5 ** 2 - 3')
 })
 
-// s.on('')
-
-s.run()
-
-var benches = s.run({maxTime: 1 }) as unknown as Benchmark[]
-for (var b = 0, l = benches.length; b < l; b++) {
-  var bench = benches[b]
-  var name = typeof bench.fn === 'function' ? bench.fn.name : bench.fn
-  console.log(name, Math.round(bench.hz))
-
-}
+runBenchmarks()

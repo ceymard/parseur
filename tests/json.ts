@@ -1,5 +1,6 @@
 import { parser } from '../examples/json'
 import { Parseur, Seq, Either, Rule, Forward, SeparatedBy, Context } from '../index'
+import { parse as chevrotain_parse } from './chevrotain/json'
 
 const TK = new class JsonTokenizer extends Parseur {
   // End with the regexps
@@ -41,31 +42,23 @@ const one = require('./1K_json').json_sample1k
 // var tokens = TK.tokenize(one)!
 console.log(parser.parse(one).result)
 
+import { benchmark, runBenchmarks } from './testsuite'
 
-import { Suite } from 'benchmark'
-import * as Benchmark from 'benchmark'
-
-var s = new Suite()
-
-s.add(function Json() {
+benchmark('Original JSON', function Json() {
   JSON.parse(one)
 })
 
-s.add(function JsonRes() {
+benchmark('Json with productions', function JsonRes() {
   parser.parse(one)
 })
 
-s.add(function JsonNoResult() {
+benchmark('Json without object building', function JsonNoResult() {
   const tokens = TK.tokenize(one, { forget_skips: true })!
   JsonNoRes.Json.parse(new Context(tokens))
 })
 
-s.run()
+benchmark('Chevrotain JSON without object', function () {
+  chevrotain_parse(one)
+})
 
-var benches = s.run({maxTime: 1 }) as unknown as Benchmark[]
-for (var b = 0, l = benches.length; b < l; b++) {
-  var bench = benches[b]
-  var name = typeof bench.fn === 'function' ? bench.fn.name : bench.fn
-  console.log(name, Math.round(bench.hz))
-
-}
+runBenchmarks()

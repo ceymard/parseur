@@ -27,6 +27,7 @@
     "@types/benchmark": "^1.0.31",
     "@types/json5": "^0.0.30",
     "benchmark": "^2.1.4",
+    "chevrotain": "^7.0.1",
     "json5": "^2.1.3"
   }
 }

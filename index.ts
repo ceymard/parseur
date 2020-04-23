@@ -1176,13 +1176,34 @@ export function Any<C extends Context>(): AnyRule<C> {
 
 
 export class AnyTokenButRule<C extends Context> extends AnyRule<C> {
-  constructor(public tk: Rule<any, C>, public include_skip?: boolean) {
+  tk?: TokenDef<C>
+  constructor(public rule: Rule<any, C>, public include_skip?: boolean) {
     super()
+    if (rule instanceof TokenDef) {
+      this.tk = rule
+      this.parse = this.parseRuleToken
+    } else {
+      this.parse = this.parseRule
+    }
   }
 
-  parse(ctx: C, pos: number): any {
+  parseRuleToken(ctx: C, pos: number): any {
     var tk: Token | undefined
-    var looking_for = this.tk
+    var looking_for = this.tk!
+    const input = ctx.input
+    if (!this.include_skip) {
+      while ((tk = input[pos], tk && tk.is_skip)) { pos++ }
+    } else {
+      tk = input[pos]
+    }
+
+    if (tk.def !== looking_for) return Res(tk, pos + 1)
+    return Res(NoMatch, pos)
+  }
+
+  parseRule(ctx: C, pos: number): any {
+    var tk: Token | undefined
+    var looking_for = this.rule
     const input = ctx.input
     if (!this.include_skip) {
       while ((tk = input[pos], tk && tk.is_skip)) { pos++ }

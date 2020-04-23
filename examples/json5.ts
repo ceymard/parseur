@@ -87,7 +87,7 @@ function log(expr: string) {
 }
 
 export const test = `
-{
+{\u200a
   // comments
   unquoted: 'and you can quote me on that',
   singleQuotes: 'I can use "double quotes" here',

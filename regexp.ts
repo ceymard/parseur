@@ -1,4 +1,4 @@
-import { Parseur, Seq, Opt, Either, Repeat, Forward, Rule, SeparatedBy, Context, Any, AnyTokenBut, Not } from './index'
+import { Parseur, Seq, Opt, Either, Repeat, Forward, Rule, SeparatedBy, Context, AnyTokenBut, NoMatch } from './index'
 
 export interface Union {
   type: 'union'
@@ -194,12 +194,13 @@ export class RegExpParser extends Parseur<RegExpContext> {
       this.CharacterClass,
       this.NameGroupReference,
       this.Escape,
-      Seq(Not(Either(P`)`, P`|`)), { res: Any() }).then<CharacterValues>((a, ctx) => {
-        return a.res.str === '.' ? { type: 'chars', values: new Set(RegExpParser.dot), complement: true }
+      this.Any.then<CharacterValues>(a => {
+        if (a.str === ')' || a.str === '|') return NoMatch
+        return a.str === '.' ? { type: 'chars', values: new Set(RegExpParser.dot), complement: true }
           :
             {
               type: 'chars',
-              values: new Set(a.res.str.split('').map(s => cc(s)))
+              values: new Set(a.str.split('').map(s => cc(s)))
             }
       }),
     ) },

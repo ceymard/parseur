@@ -85,7 +85,8 @@ export class Parseur<C extends Context = Context> {
   str_tokens = new Map<string, TokenDef<C>>()
 
   // Accelerator for characters
-  token_table: (TokenDef<C>[] | null)[] = new Array(256).fill(null)
+  token_table: (TokenDef<C>[] | undefined)[] = new Array(256).fill(undefined)
+  higher_order_token_table: ((TokenDef<C>[] | undefined)[] | undefined)[] = new Array(256).fill(undefined)
 
   derive_string_tokens_from_regexps = true
 
@@ -131,7 +132,14 @@ export class Parseur<C extends Context = Context> {
 
     const add_to_ttable = (code: number) => {
       added = true;
-      var tbl = (this.token_table[code] = this.token_table[code] ?? [])
+      if (code < 256) {
+        var tbl = (this.token_table[code] = this.token_table[code] ?? [])
+      } else {
+        var idx = ~~(code / 256)
+        var rest = code % 256
+        var higher = this.higher_order_token_table[idx] = this.higher_order_token_table[idx] ?? new Array(256).fill(null)
+        tbl = higher[rest] = higher[rest] ?? []
+      }
       tbl.push(tdef)
       tbl.sort((a, b) => a._regex < b._regex ? 1 : a._regex > b._regex ? -1 : 0)
       // console.log(String.fromCharCode(code), tbl.map(t => t._regex))
@@ -151,7 +159,7 @@ export class Parseur<C extends Context = Context> {
             s.add(_s)
         }
         for (var _s of s)
-          if (_s < 258) add_to_ttable(_s)
+          add_to_ttable(_s)
         // console.log(def, starting_chars)
       } else {
         throw new Error(`regexp failed...?`)
@@ -172,6 +180,7 @@ export class Parseur<C extends Context = Context> {
     var tokendefs = this.noaccel_token_defs
     var l = tokendefs.length
     var tktbl = this.token_table
+    var htktbl = this.higher_order_token_table
     var il = input.length
     var line = 1
     var col = 1
@@ -179,14 +188,24 @@ export class Parseur<C extends Context = Context> {
     tks: while (true) {
       if (pos >= il) break
 
-      var accel = tktbl[input[pos].charCodeAt(0)]
+      var char = input[pos].charCodeAt(0)
+      // var accel = char < 256 ? tktbl[char] : htktbl[~~(char / 256)]?.[char % 256]
+      var accel = tktbl[char]
       // console.log(input[pos], accel, input[pos].charCodeAt(0))
       if (accel) {
         l = accel.length
         tokendefs = accel
       } else {
-        l = tkdefs.length
-        tokendefs = tkdefs
+        if (char > 255) {
+          accel = htktbl[~~(char / 256)]?.[char % 256]
+        }
+        if (accel) {
+          l = accel.length
+          tokendefs = accel
+        } else {
+          l = tkdefs.length
+          tokendefs = tkdefs
+        }
       }
       // console.log(tokendefs, accel, input[pos])
 

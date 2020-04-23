@@ -86,6 +86,9 @@ export class Parseur<C extends Context = Context> {
 
   // Accelerator for characters
   token_table: (TokenDef<C>[] | undefined)[] = new Array(256).fill(undefined)
+  // Accelerator for characters whose code is > 256.
+  // The technique was stolen from chevrotain ; characters are put into "buckets" of 256 elements
+  // to reduce memory usage
   higher_order_token_table: ((TokenDef<C>[] | undefined)[] | undefined)[] = new Array(256).fill(undefined)
 
   derive_string_tokens_from_regexps = true
@@ -1173,7 +1176,7 @@ export function Any<C extends Context>(): AnyRule<C> {
 
 
 export class AnyTokenButRule<C extends Context> extends AnyRule<C> {
-  constructor(public tk: TokenDef<C>, public include_skip?: boolean) {
+  constructor(public tk: Rule<any, C>, public include_skip?: boolean) {
     super()
   }
 
@@ -1187,12 +1190,13 @@ export class AnyTokenButRule<C extends Context> extends AnyRule<C> {
       tk = input[pos]
     }
 
-    if (!tk || tk.def === looking_for) return Res(NoMatch, pos)
-    return Res(tk, pos + 1)
+    if (looking_for.parse(ctx, pos).isNoMatch()) return Res(tk, pos + 1)
+    // if (!tk || tk.def === looking_for) return Res(NoMatch, pos)
+    return Res(NoMatch, pos)
   }
 }
 
-export function AnyTokenBut<C extends Context>(t: TokenDef<C>, include_skip?: boolean) {
+export function AnyTokenBut<C extends Context>(t: Rule<any, C>, include_skip?: boolean) {
   return new AnyTokenButRule(t, include_skip)
 }
 

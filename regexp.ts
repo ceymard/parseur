@@ -227,9 +227,10 @@ export class RegExpParser extends Parseur<RegExpContext> {
   TopLevel = Seq({ res: this.Union }, this.Eof)
 
   parse(reg: RegExp) {
-    var tks = this.tokenize(reg.source)!
-    var ctx = new RegExpContext(tks)
-    ctx.ignore_case = reg.ignoreCase
-    return this.TopLevel.parse(ctx)
+    return this.parseRule(reg.source, this.TopLevel, (tks) => {
+      var ctx = new RegExpContext(tks)
+      ctx.ignore_case = reg.ignoreCase
+      return ctx
+    })
   }
 }

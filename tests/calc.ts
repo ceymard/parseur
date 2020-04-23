@@ -46,13 +46,7 @@ export namespace CalcRec {
 }
 
 function parse(r: Rule<number>, input: string) {
-  var tokens = tk.tokenize(input, { forget_skips: true, enable_line_counts: false })
-  if (!tokens) throw new Error('could not parse')
-  // console.log(tokens?.map(t => t.str).join(' '))
-  var ctx = new Context(tokens)
-  var res = r.parse(ctx)
-  // console.log(res, ctx.furthest_pos, ctx.input.length, ctx.furthest_token)
-  return res
+  return tk.parseRule(input, r, tokens => new Context(tokens))
 }
 
 console.log(parse(CalcOp.TopLevel, '2 + 4'))

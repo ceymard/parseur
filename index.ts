@@ -153,7 +153,7 @@ export class Parseur<C extends Context = Context> {
       this.str_tokens.set(def, tdef)
     } else if (accel !== false) {
       var preg = reg_parser.parse(def)
-      if (!preg.isNoMatch()) {
+      if (preg.status === 'ok') {
         handle_regexp(preg.value.res)
         var s = new Set<number>()
         for (var st of starting_chars) {
@@ -265,29 +265,29 @@ export class Parseur<C extends Context = Context> {
     if (pos !== input.length) {
       // console.log(res.map(r => `${r.match[0]}`))
       // FIXME: report error differently
-      console.log(`Tokenization failed `, '"' + input.slice(pos, pos + 100) + '"...')
-      return null
+      // console.log(`Tokenization failed `, '"' + input.slice(pos, pos + 100) + '"...')
+      return { status: 'error' as const, tokens: res, max_pos: pos }
     }
-    return res
+    return { status: 'ok' as const, tokens: res }
   }
 
-  parseRule(input: string, rule: Rule<any, C>, getctx: (input: Token[]) => C, opts?: TokenizerOptions) {
+  parseRule<T>(input: string, rule: Rule<T, C>, getctx: (input: Token[]) => C, opts?: TokenizerOptions) {
     var tokens = this.tokenize(input, opts)
     // console.log('??')
-    if (tokens) {
-      const ctx = getctx(tokens)
+    if (tokens.status === 'ok') {
+      const ctx = getctx(tokens.tokens)
       var res = rule.parse(ctx, 0) // FIXME
 
       if (res.isNoMatch()) {
         // console.log('Match failed')
-        return { status: 'nok' as const, res, tokens }
+        return { status: 'nomatch' as const, pos: res.pos, tokens }
         // console.log(Res.max_res)
       } else {
-        return { status: 'ok' as const, result: res.value, pos: res.pos }
+        return { status: 'ok' as const, value: res.value, pos: res.pos }
         // console.log(inspect(res.res, {depth: null}))
       }
     }
-    return { status: 'nok' as const, }
+    return { status: 'notokens' as const,  ...tokens }
   }
 
   auto_create_tokens = true
@@ -439,10 +439,12 @@ export class RuleSet extends Set<Rule<any, any>> {
 export class FirstTokenSet<C extends Context> extends Set<TokenDef<C>> {
 
   has_any = false
+  has_skips = false
 
   static fromTokenDef<C extends Context>(tk: TokenDef<C>) {
     var r = new FirstTokenSet<C>()
     r.add(tk)
+    if (tk._skip) r.has_skips = true
     return r
   }
 
@@ -457,8 +459,10 @@ export class FirstTokenSet<C extends Context> extends Set<TokenDef<C>> {
       this.clear()
       this.has_any = true
     } else {
-      for (var t of other)
+      for (var t of other) {
         this.add(t)
+        if (t._skip) this.has_skips = true
+      }
     }
     return this
   }
@@ -1219,6 +1223,41 @@ export class AnyTokenButRule<C extends Context> extends AnyRule<C> {
 
 export function AnyTokenBut<C extends Context>(t: Rule<any, C>, include_skip?: boolean) {
   return new AnyTokenButRule(t, include_skip)
+}
+
+
+export class AnyTokenUntilRule<T, C extends Context> extends Rule<{ tokens: Token[], value: T }, C> {
+  skippable = true
+
+  constructor(public rule: Rule<T, C>, public opts?: { include_skips?: boolean }) {
+    super()
+  }
+
+  parse(ctx: C, pos: number) {
+    var ft = this.rule.firstTokens(new RuleSet().add(this))
+    this.skippable = !ft.has_any
+    this.parse = this.doParse
+    return this.doParse(ctx, pos)
+  }
+
+  doParse(ctx: C, pos: number) {
+    var tokens: Token[]
+    var include_skips = this.opts?.include_skips !== false
+    var looking_for = this.rule
+
+    var tk: Token | undefined
+    const input = ctx.input
+    while ((tk = input[pos], tk)) {
+      // try to parse the rule
+      var m = looking_for.parse(ctx, pos)
+    }
+
+  }
+}
+
+
+export function AnyTokenUntil<T, C extends Context>(t: Rule<T, C>, opts?: { include_skips?: boolean }) {
+
 }
 
 

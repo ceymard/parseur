@@ -1241,7 +1241,7 @@ export class AnyTokenUntilRule<T, C extends Context> extends Rule<{ tokens: Toke
   }
 
   doParse(ctx: C, pos: number) {
-    var tokens: Token[]
+    var tokens: Token[] = []
     var include_skips = this.opts?.include_skips !== false
     var looking_for = this.rule
 
@@ -1250,14 +1250,20 @@ export class AnyTokenUntilRule<T, C extends Context> extends Rule<{ tokens: Toke
     while ((tk = input[pos], tk)) {
       // try to parse the rule
       var m = looking_for.parse(ctx, pos)
+      if (!m.isNoMatch()) {
+        return Res({ value: m.value, tokens }, pos)
+      } else {
+        if (!tk.is_skip || include_skips) tokens.push(tk)
+      }
     }
 
+    return Res(NoMatch, pos)
   }
 }
 
 
 export function AnyTokenUntil<T, C extends Context>(t: Rule<T, C>, opts?: { include_skips?: boolean }) {
-
+  return new AnyTokenUntilRule(t, opts)
 }
 
 

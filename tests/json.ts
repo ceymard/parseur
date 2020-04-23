@@ -53,8 +53,9 @@ benchmark('Json with productions', function JsonRes() {
 })
 
 benchmark('Json without object building', function JsonNoResult() {
-  const tokens = TK.tokenize(one, { forget_skips: true })!
-  JsonNoRes.Json.parse(new Context(tokens))
+  const tkres = TK.tokenize(one, { forget_skips: true })!
+  if (tkres.status === 'ok')
+    JsonNoRes.Json.parse(new Context(tkres.tokens))
 })
 
 benchmark('Chevrotain JSON without object', function () {

@@ -54,7 +54,7 @@ import { inspect } from 'util'
 function log(expr: string) {
   var res = parser.parse(expr)
   if (res.status === 'ok') {
-    console.log(inspect(res.result, { colors: true, depth: null }))
+    console.log(inspect(res.value, { colors: true, depth: null }))
   } else {
 
   }

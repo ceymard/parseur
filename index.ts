@@ -405,8 +405,8 @@ export class Parseur<C extends Context = Context> {
     return new SRule()
   }
 
-  Eof = Eof<C>()
-  Any = Any<C>()
+  get Eof(): Rule<null, C> { return new EOF<C>() }
+  get Any(): Rule<Token, C> { return new AnyRule() }
 
 }
 
@@ -1280,7 +1280,7 @@ export const AnyNoSkip = new class AnyNoSkipRule extends TokenDef<Context> {
 /**
  * Matches the end of the input. Will skip skippable tokens.
  */
-class EOF extends Rule<null, Context> {
+class EOF<C extends Context> extends Rule<null, C> {
 
   parse(ctx: Context, pos: number) {
     var tk: Token | undefined

@@ -20,11 +20,11 @@ test(/(?:\s*\/\/[^\n]*\n?)+|\s*\/\*(?:(?!\*\/)[^])*\*\/\s*|\s+/)
 // test(/[-.]./)
 // test(/.*?/)
 
-var patterns = [
-  /\w?\d|\s\S\12/
-]
+// var patterns = [
+//   /\w?\d|\s\S\12/
+// ]
 
-var patterns_str = patterns.map(p => p.toString())
+// var patterns_str = patterns.map(p => p.toString())
 
 // benchmark('Parseur', () => {
 //   for (var i = 0, l = patterns.length; i < l; i++) {

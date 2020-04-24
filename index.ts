@@ -266,7 +266,7 @@ export class Parseur<C extends Context = Context> {
       // console.log(res.map(r => `${r.match[0]}`))
       // FIXME: report error differently
       // console.log(`Tokenization failed `, '"' + input.slice(pos, pos + 100) + '"...')
-      return { status: 'error' as const, tokens: res, max_pos: pos }
+      return { status: 'tokenerror' as const, tokens: res, max_pos: pos }
     }
     return { status: 'ok' as const, tokens: res }
   }
@@ -280,10 +280,10 @@ export class Parseur<C extends Context = Context> {
 
       if (res.isNoMatch()) {
         // console.log('Match failed')
-        return { status: 'nomatch' as const, pos: res.pos, tokens }
+        return { status: 'nomatch' as const, pos: res.pos, tokens: tokens.tokens }
         // console.log(Res.max_res)
       } else {
-        return { status: 'ok' as const, value: res.value, pos: res.pos }
+        return { status: 'ok' as const, value: res.value, pos: res.pos, tokens: tokens.tokens }
         // console.log(inspect(res.res, {depth: null}))
       }
     }
@@ -651,7 +651,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
   parse(ctx: ContextOf<Rules>, pos: number = 0): any {
     var rs = new RuleSet([this])
 
-    rules: for (var r of this.rules) {
+    for (var r of this.rules) {
       var rtokens = r.firstTokens(rs)
       if (rtokens.has_any) {
         // HANDLE ANY TOKENS
@@ -676,6 +676,7 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
 
   doParseOptimized(ctx: ContextOf<Rules>, pos: number = 0) {
     var tk: Token | undefined
+    var nom: ResNoMatch | undefined
 
     const input = ctx.input
     if (this.can_skip) {
@@ -690,13 +691,14 @@ export class EitherRule<Rules extends Rule<any, any>[]> extends Rule<{[K in keyo
           var rule = _rules[i]
           var res = rule.parse(ctx, pos)
           if (!res.isNoMatch()) return res
+          if (!nom || nom.pos < res.pos) nom = res
         }
       }
 
-      if (!tk.is_skip) return Res(NoMatch, pos)
+      if (!tk.is_skip) return nom ?? Res(NoMatch, pos)
       pos++
     }
-    return Res(NoMatch, pos)
+    return nom ?? Res(NoMatch, pos)
   }
 
   doParse(ctx: ContextOf<Rules>, pos: number = 0) {
@@ -1251,9 +1253,10 @@ export class AnyTokenUntilRule<T, C extends Context> extends Rule<{ tokens: Toke
       // try to parse the rule
       var m = looking_for.parse(ctx, pos)
       if (!m.isNoMatch()) {
-        return Res({ value: m.value, tokens }, pos)
+        return Res({ value: m.value, tokens }, m.pos)
       } else {
         if (!tk.is_skip || include_skips) tokens.push(tk)
+        pos++
       }
     }
 

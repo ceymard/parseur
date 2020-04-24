@@ -1,7 +1,7 @@
 import { parser, test } from '../examples/json5'
 import * as J5 from 'json5'
 
-console.log(parser.parse(test))
+console.log(parser.parse(test).value)
 
 import { benchmark, runBenchmarks } from './testsuite'
 

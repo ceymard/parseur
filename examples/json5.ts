@@ -81,10 +81,10 @@ function log(expr: string) {
   var res = parser.parse(expr)
   if (res.status === 'ok') {
     console.log(inspect(res.value, { colors: true, depth: null }))
-  } else if (res.status === 'error') {
+  } else if (res.status === 'tokenerror') {
     console.log(`Parse failed`, res.pos, res.tokens?.map((t, i) => `<${i}:${t.str.replace(/\n/g, '\\n')}>`).join(' '))
   } else {
-    console.log(`Parse failed`, res.pos, res.tokens.tokens.map((t, i) => `<${i}:${t.str.replace(/\n/g, '\\n')}>`).join(' '))
+    console.log(`Parse failed`, res.pos, res.tokens.map((t, i) => `<${i}:${t.str.replace(/\n/g, '\\n')}>`).join(' '))
   }
 }
 

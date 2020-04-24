@@ -40,7 +40,7 @@ export namespace JsonNoRes {
 const one = require('./1K_json').json_sample1k
 
 // var tokens = TK.tokenize(one)!
-console.log(parser.parse(one))
+console.log(parser.parse(one).value)
 
 import { benchmark, runBenchmarks } from './testsuite'
 

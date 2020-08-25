@@ -1167,6 +1167,38 @@ export function Not<R extends Rule<any, any>>(rule: R): Rule<null, ContextOf<R>>
 }
 
 
+export class TryRepeatRule<T, E, C extends Context> extends Rule<{ matched: T[], until: E, tokens: Token[] }, C> {
+  constructor(public rule: Rule<T, C>, public until: Rule<E, C>) { super() }
+
+  parse(ctx: C, pos: number) {
+    var res: T[] = []
+    var start = pos
+    var rule = this.rule
+    var until = this.until
+    while (true) {
+      var ures = until.parse(ctx, pos)
+      if (!ures.isNoMatch()) return Res({
+        matched: res,
+        until: ures.value,
+        tokens: ctx.input.slice(start, ures.pos)
+      }, ures.pos, this)
+      if (pos >= ctx.input.length) return Res(NoMatch, pos, this)
+      var rres = rule.parse(ctx, pos)
+      if (!rres.isNoMatch()) {
+        res.push(rres.value)
+        pos = rres.pos
+      } else {
+        pos += 1
+      }
+    }
+  }
+}
+
+
+export function TryRepeat<T, E, C extends Context>(rule: Rule<T, C>, until: Rule<E, C>) {
+  return new TryRepeatRule(rule, until)
+}
+
 /**
  * Matches any token, even tokens that can be skipped
  */
@@ -1230,7 +1262,7 @@ export function AnyTokenBut<C extends Context>(t: Rule<any, C>, include_skip?: b
 }
 
 
-export class AnyTokenUntilRule<T, C extends Context> extends Rule<{ tokens: Token[], value: T }, C> {
+export class AnyTokenUntilRule<T, C extends Context> extends Rule<{ tokens: Token[], until: T }, C> {
   skippable = true
 
   constructor(public rule: Rule<T, C>, public opts?: { include_skips?: boolean, include_end?: boolean }) {
@@ -1257,7 +1289,7 @@ export class AnyTokenUntilRule<T, C extends Context> extends Rule<{ tokens: Toke
       // try to parse the rule
       var m = looking_for.parse(ctx, pos)
       if (!m.isNoMatch()) {
-        return Res({ value: m.value, tokens: include_end ? ctx.input.slice(start, m.pos) : ctx.input.slice(start, pos) }, m.pos, this)
+        return Res({ until: m.value, tokens: include_end ? ctx.input.slice(start, m.pos) : ctx.input.slice(start, pos) }, m.pos, this)
       } else {
         if (!tk.is_skip || include_skips) tokens.push(tk)
         pos++

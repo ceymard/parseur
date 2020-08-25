@@ -289,7 +289,7 @@ export class Parseur<C extends Context = Context> {
         // console.log(inspect(res.res, {depth: null}))
       }
     }
-    return { status: 'notokens' as const,  ...tokens }
+    return { ...tokens }
   }
 
   auto_create_tokens = true
@@ -733,14 +733,14 @@ export type SeqResult<T extends any[]> = {[K in keyof T]:
 }[number]
 
 export type ContextOf<T extends any[] | any> =
-  T extends Rule<any, infer C> ? C :
+  T extends Rule<any, infer C> ? C : T extends any[] ?
   {[K in keyof T]:
   [T[K]] extends [{[name: string]: Rule<any, infer C>}] ?
     C
   : [T[K]] extends [Rule<any, infer C>] ?
     C
   : never
-}[number]
+}[number] : never
 
 
 export class SeqRule<Rules extends (Rule<any, any> | {[name: string]: Rule<any, any>})[]> extends Rule<UnionToIntersection<SeqResult<Rules>> & {}, ContextOf<Rules>> {
